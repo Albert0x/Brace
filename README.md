@@ -1,6 +1,7 @@
 # HyperTerminal
 
-English | [简体中文](./README.zh-CN.md)
+[![English](https://img.shields.io/badge/Language-English-0969da)](./README.md)
+[![简体中文](https://img.shields.io/badge/语言-简体中文-d73a49)](./README.zh-CN.md)
 
 HyperTerminal is a desktop terminal application built with Tauri, React,
 TypeScript, Rust, and xterm.js. It provides multiple terminal tabs, shell
