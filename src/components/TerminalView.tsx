@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
-import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -71,6 +70,7 @@ export default function TerminalView({
 
   useEffect(() => {
     if (!containerRef.current) return;
+    let disposed = false;
 
     const term = new Terminal({
       cursorBlink: true,
@@ -97,13 +97,16 @@ export default function TerminalView({
     termRef.current = term;
     fitRef.current = fit;
 
-    try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => webgl.dispose());
-      term.loadAddon(webgl);
-    } catch {
-      // 无 WebGL，降级
-    }
+    // Keep the optional renderer out of the initial bundle. xterm continues to
+    // use its canvas renderer when WebGL is unavailable or fails to initialize.
+    import("@xterm/addon-webgl")
+      .then(({ WebglAddon }) => {
+        if (disposed) return;
+        const webgl = new WebglAddon();
+        webgl.onContextLoss(() => webgl.dispose());
+        term.loadAddon(webgl);
+      })
+      .catch(() => {});
 
     onRegisterSearch(sessionId, search);
 
@@ -159,6 +162,7 @@ export default function TerminalView({
     window.addEventListener("resize", syncSize);
 
     return () => {
+      disposed = true;
       window.removeEventListener("resize", syncSize);
       unlisten.then((f) => f());
       onUnregisterSearch(sessionId);

@@ -8,6 +8,20 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [react()],
 
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return;
+          if (id.includes("@xterm/addon-webgl")) return "xterm-webgl";
+          if (id.includes("@xterm")) return "xterm";
+          if (id.includes("@tauri-apps")) return "tauri";
+          if (id.includes("react")) return "react";
+        },
+      },
+    },
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors
