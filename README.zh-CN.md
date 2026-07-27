@@ -1,6 +1,7 @@
 # HyperTerminal
 
-[English](./README.md) | 简体中文
+[![English](https://img.shields.io/badge/Language-English-0969da)](./README.md)
+[![简体中文](https://img.shields.io/badge/语言-简体中文-d73a49)](./README.zh-CN.md)
 
 HyperTerminal 是一款基于 Tauri、React、TypeScript、Rust 和 xterm.js
 构建的桌面终端应用。它在轻量级原生窗口中提供多终端标签、Shell
