@@ -26,4 +26,7 @@ serde_json = "1"
 portable-pty = "0.8"
 # 窗口毛玻璃/亚克力效果（Win11 Mica/Acrylic）
 window-vibrancy = "0.5"
+# 自动更新
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 

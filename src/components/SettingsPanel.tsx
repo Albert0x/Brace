@@ -1,5 +1,7 @@
 import { useState, useRef } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { THEMES, type Theme } from "../themes";
 
 const REPO_URL = "https://github.com/Albert0x/HyperTerminal";
@@ -280,11 +282,25 @@ export default function SettingsPanel(props: Props) {
               <div className="about-actions">
                 <button
                   className="about-btn primary"
-                  onClick={() =>
-                    alert(
-                      `当前版本 v${APP_VERSION}\n\n自动更新将在项目打包发布后启用（需配置更新源与签名）。`,
-                    )
-                  }
+                  onClick={async () => {
+                    try {
+                      const update = await check();
+                      if (update) {
+                        if (
+                          confirm(
+                            `发现新版本 v${update.version}\n${update.body ?? ""}\n\n现在下载并安装？`,
+                          )
+                        ) {
+                          await update.downloadAndInstall();
+                          await relaunch();
+                        }
+                      } else {
+                        alert(`当前已是最新版本 v${APP_VERSION}`);
+                      }
+                    } catch (e) {
+                      alert(`检查更新失败：${e}`);
+                    }
+                  }}
                 >
                   检查更新
                 </button>
