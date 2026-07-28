@@ -6,6 +6,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { useT } from "../i18n";
 import "@xterm/xterm/css/xterm.css";
 
 interface Props {
@@ -42,6 +43,7 @@ export default function TerminalView({
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const t = useT();
 
   const paste = () => {
     navigator.clipboard
@@ -224,17 +226,19 @@ export default function TerminalView({
           onClick={(e) => e.stopPropagation()}
         >
           <div className="ctx-item" onClick={() => { copySelection(); setMenu(null); }}>
-            复制
+            <span>{t("ctx.copy")}</span>
+            <span className="ctx-key">Ctrl+Shift+C</span>
           </div>
           <div className="ctx-item" onClick={() => { paste(); setMenu(null); }}>
-            粘贴
+            <span>{t("ctx.paste")}</span>
+            <span className="ctx-key">Ctrl+Shift+V</span>
           </div>
           <div className="ctx-sep" />
           <div className="ctx-item" onClick={() => { termRef.current?.selectAll(); setMenu(null); }}>
-            全选
+            <span>{t("ctx.selectAll")}</span>
           </div>
           <div className="ctx-item" onClick={() => { termRef.current?.clear(); setMenu(null); }}>
-            清屏
+            <span>{t("ctx.clear")}</span>
           </div>
         </div>
       )}

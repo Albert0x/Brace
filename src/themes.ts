@@ -117,7 +117,12 @@ export const LIGHT_THEME: Theme = {
 // 把主题的 UI 配色写入 CSS 变量
 export function applyTheme(theme: Theme) {
   const r = document.documentElement.style;
+  r.setProperty("--ht-base", theme.ui.base);
   r.setProperty("--ht-panel", theme.ui.panel);
+  // 悬停/激活叠加色：亮色主题用深色叠加，暗色主题用浅色叠加（保证浅底上也可见）
+  const light = theme.id === "light";
+  r.setProperty("--ht-hover", light ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.08)");
+  r.setProperty("--ht-active", light ? "rgba(0,0,0,0.1)" : "rgba(255,255,255,0.12)");
   r.setProperty("--ht-fg", theme.ui.fg);
   r.setProperty("--ht-dim", theme.ui.dim);
   r.setProperty("--ht-accent", theme.ui.accent);
