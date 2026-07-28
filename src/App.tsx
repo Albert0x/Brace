@@ -5,7 +5,7 @@ import type { SearchAddon } from "@xterm/addon-search";
 import TerminalView from "./components/TerminalView";
 import FileTree from "./components/FileTree";
 import SettingsPanel from "./components/SettingsPanel";
-import { THEMES, applyTheme, type Theme } from "./themes";
+import { THEMES, LIGHT_THEME, applyTheme, type Theme } from "./themes";
 import "./App.css";
 
 interface ShellInfo {
@@ -30,7 +30,6 @@ function App() {
   ]);
   const [activeId, setActiveId] = useState<string>(() => tabs[0].id);
 
-  // 可用 shell 检测
   const [shells, setShells] = useState<ShellInfo[]>([]);
   const [shellMenu, setShellMenu] = useState(false);
   useEffect(() => {
@@ -44,11 +43,10 @@ function App() {
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
   useEffect(() => {
-    applyTheme(theme);
     localStorage.setItem("ht-theme", theme.id);
   }, [theme]);
 
-  // 背景图 + 遮罩浓度
+  // 背景图 + 遮罩
   const [bgImage, setBgImage] = useState<string>(
     () => localStorage.getItem("ht-bg") ?? "",
   );
@@ -60,12 +58,76 @@ function App() {
       if (bgImage) localStorage.setItem("ht-bg", bgImage);
       else localStorage.removeItem("ht-bg");
     } catch {
-      // 图太大超配额时仅本会话生效
+      /* 图太大超配额时仅本会话生效 */
     }
   }, [bgImage]);
   useEffect(() => {
     localStorage.setItem("ht-overlay", String(overlay));
   }, [overlay]);
+
+  // ---------- General 设置 ----------
+  const [appearance, setAppearance] = useState(
+    () => localStorage.getItem("ht-appearance") ?? "dark",
+  );
+  const [uiZoom, setUiZoom] = useState(
+    () => Number(localStorage.getItem("ht-zoom")) || 1,
+  );
+  const [showHidden, setShowHidden] = useState(
+    () => localStorage.getItem("ht-hidden") === "1",
+  );
+  const [gitDeco, setGitDeco] = useState(
+    () => localStorage.getItem("ht-gitdeco") === "1",
+  );
+  const [webgl, setWebgl] = useState(
+    () => localStorage.getItem("ht-webgl") !== "0",
+  );
+  const [cursorBlink, setCursorBlink] = useState(
+    () => localStorage.getItem("ht-cursor") !== "0",
+  );
+  useEffect(() => {
+    localStorage.setItem("ht-appearance", appearance);
+  }, [appearance]);
+  // 跟随系统明暗
+  const [systemDark, setSystemDark] = useState(
+    () => window.matchMedia("(prefers-color-scheme: dark)").matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const h = (e: MediaQueryListEvent) => setSystemDark(e.matches);
+    mq.addEventListener("change", h);
+    return () => mq.removeEventListener("change", h);
+  }, []);
+  // 实际生效的配色：外观(明暗) 决定亮/暗，Themes 选的是暗色下的具体配色
+  const effectiveTheme =
+    appearance === "light"
+      ? LIGHT_THEME
+      : appearance === "system"
+        ? systemDark
+          ? theme
+          : LIGHT_THEME
+        : theme;
+  useEffect(() => {
+    applyTheme(effectiveTheme);
+  }, [effectiveTheme]);
+  useEffect(() => {
+    localStorage.setItem("ht-zoom", String(uiZoom));
+    // 缩放整个 UI（webview 支持 zoom）
+    (document.documentElement.style as any).zoom = String(uiZoom);
+    // zoom 改变了容器实际尺寸，通知终端重新 fit，否则内容会错乱
+    requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+  }, [uiZoom]);
+  useEffect(() => {
+    localStorage.setItem("ht-hidden", showHidden ? "1" : "0");
+  }, [showHidden]);
+  useEffect(() => {
+    localStorage.setItem("ht-gitdeco", gitDeco ? "1" : "0");
+  }, [gitDeco]);
+  useEffect(() => {
+    localStorage.setItem("ht-webgl", webgl ? "1" : "0");
+  }, [webgl]);
+  useEffect(() => {
+    localStorage.setItem("ht-cursor", cursorBlink ? "1" : "0");
+  }, [cursorBlink]);
 
   // 终端字体大小
   const [fontSize, setFontSize] = useState<number>(
@@ -75,7 +137,7 @@ function App() {
     localStorage.setItem("ht-fontsize", String(fontSize));
   }, [fontSize]);
 
-  // 文件树根目录：跟随各终端上报的 cwd
+  // 文件树根目录
   const [homeCwd, setHomeCwd] = useState("");
   const [cwdMap, setCwdMap] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -86,7 +148,6 @@ function App() {
   }, []);
   const activeCwd = cwdMap[activeId] ?? homeCwd;
 
-  // 标签标题用当前目录名，未上报时回退 shell 名
   const tabLabel = (tab: Tab) => {
     const cwd = cwdMap[tab.id];
     const b = cwd ? cwd.split(/[\\/]/).filter(Boolean).pop() : "";
@@ -95,7 +156,6 @@ function App() {
     return s?.name ?? "Terminal";
   };
 
-  // 文件树双击文件夹 → 让活动终端 cd 过去
   const openDirInTerminal = (path: string) => {
     invoke("pty_write", { id: activeId, data: `cd '${path}'\r` }).catch(console.error);
   };
@@ -157,7 +217,6 @@ function App() {
     });
   };
 
-  // shell 菜单点外关闭
   useEffect(() => {
     if (!shellMenu) return;
     const close = () => setShellMenu(false);
@@ -165,7 +224,6 @@ function App() {
     return () => window.removeEventListener("click", close);
   }, [shellMenu]);
 
-  // 快捷键
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.ctrlKey) return;
@@ -206,18 +264,16 @@ function App() {
 
   return (
     <>
-      {/* 背景层 */}
       <div
         className="bg-layer"
         style={{ backgroundImage: bgImage ? `url(${bgImage})` : "none" }}
       />
       <div
         className="bg-overlay"
-        style={{ background: theme.ui.base, opacity: bgImage ? overlay : 0.9 }}
+        style={{ background: effectiveTheme.ui.base, opacity: bgImage ? overlay : 0.9 }}
       />
 
       <div className="app">
-        {/* ---------- 顶栏 ---------- */}
         <header className="topbar" data-tauri-drag-region>
           <div className="tabs">
             {tabs.map((tab) => (
@@ -243,11 +299,7 @@ function App() {
             ))}
 
             <div className="tab-add-group">
-              <button
-                className="tab-add"
-                title="新建标签 (Ctrl+T)"
-                onClick={() => addTab()}
-              >
+              <button className="tab-add" title="新建标签 (Ctrl+T)" onClick={() => addTab()}>
                 ＋
               </button>
               {shells.length > 1 && (
@@ -299,11 +351,7 @@ function App() {
                 }}
               />
             </div>
-            <button
-              className="icon-btn"
-              title="设置"
-              onClick={() => setSettingsOpen(true)}
-            >
+            <button className="icon-btn" title="设置" onClick={() => setSettingsOpen(true)}>
               ⚙
             </button>
             <div className="win-controls">
@@ -326,10 +374,9 @@ function App() {
           </div>
         </header>
 
-        {/* ---------- 中部：侧边栏 + 终端 ---------- */}
         <div className="body">
           <aside className="sidebar">
-            <FileTree rootPath={activeCwd} onOpenDir={openDirInTerminal} />
+            <FileTree rootPath={activeCwd} onOpenDir={openDirInTerminal} showHidden={showHidden} />
           </aside>
 
           <main className="main">
@@ -339,9 +386,11 @@ function App() {
                 sessionId={tab.id}
                 active={tab.id === activeId}
                 onCwd={handleCwd}
-                termTheme={theme.terminal}
+                termTheme={effectiveTheme.terminal}
                 initialCwd={tab.initialCwd}
                 fontSize={fontSize}
+                cursorBlink={cursorBlink}
+                webgl={webgl}
                 shellPath={tab.shellPath}
                 shellType={tab.shellType}
                 onRegisterSearch={registerSearch}
@@ -354,7 +403,6 @@ function App() {
           </main>
         </div>
 
-        {/* ---------- 底部：状态栏 ---------- */}
         <footer className="statusbar">
           <div className="status-left">
             <span>◧ Files</span>
@@ -370,17 +418,28 @@ function App() {
         </footer>
       </div>
 
-      {/* ---------- 设置面板 ---------- */}
       <SettingsPanel
         open={settingsOpen}
-        current={theme.id}
-        onSelect={setTheme}
         onClose={() => setSettingsOpen(false)}
+        currentTheme={theme.id}
+        onSelectTheme={setTheme}
         hasBg={!!bgImage}
         overlay={overlay}
         onPickBg={setBgImage}
         onClearBg={() => setBgImage("")}
         onOverlay={setOverlay}
+        appearance={appearance}
+        onAppearance={setAppearance}
+        uiZoom={uiZoom}
+        onUiZoom={setUiZoom}
+        showHidden={showHidden}
+        onShowHidden={setShowHidden}
+        gitDeco={gitDeco}
+        onGitDeco={setGitDeco}
+        webgl={webgl}
+        onWebgl={setWebgl}
+        cursorBlink={cursorBlink}
+        onCursorBlink={setCursorBlink}
       />
     </>
   );
