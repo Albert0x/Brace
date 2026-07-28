@@ -23,8 +23,14 @@ struct PtyOutput {
     data: String,
 }
 
-// PowerShell 系专用：每次提示符用 OSC 9;9 上报 cwd。结尾只用 \r。
+// 各 shell 注入自己的 prompt，用 OSC 9;9 上报 cwd（供文件树联动）。结尾只用 \r。
+// PowerShell 系：function prompt 里拼 OSC + 可见提示符
 const POWERSHELL_INJECT: &str = "function prompt { $p=(Get-Location).Path; $e=[char]27; \"$e]9;9;$p$e\\PS $p> \" }; clear\r";
+// CMD：PROMPT 里 $E=ESC、$P=当前路径、$G=>；先 cls 再设，避免回显那行注入命令
+const CMD_INJECT: &str = "cls & prompt $E]9;9;$P$E\\$P$G \r";
+// Git Bash：PROMPT_COMMAND 每次提示符前 printf 出 OSC 9;9；pwd -W 取 Windows 路径喂文件树
+const BASH_INJECT: &str =
+    "export PROMPT_COMMAND='printf \"\\033]9;9;%s\\033\\\\\" \"$(pwd -W 2>/dev/null || pwd)\"'\r";
 
 // 新建一个终端会话。shell_path 为空回退 powershell.exe；shell_type 决定是否注入 cwd 上报。
 #[tauri::command]
@@ -68,9 +74,15 @@ fn pty_create(
     let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
     let mut writer = pair.master.take_writer().map_err(|e| e.to_string())?;
 
-    // 只有 PowerShell 系注入 cwd 上报（cmd/bash 语法不同，暂不联动）
-    if shell_type == "powershell" {
-        let _ = writer.write_all(POWERSHELL_INJECT.as_bytes());
+    // 按 shell 类型注入对应的 cwd 上报 prompt
+    let inject = match shell_type.as_str() {
+        "powershell" => POWERSHELL_INJECT,
+        "cmd" => CMD_INJECT,
+        "bash" => BASH_INJECT,
+        _ => "",
+    };
+    if !inject.is_empty() {
+        let _ = writer.write_all(inject.as_bytes());
         let _ = writer.flush();
     }
 
@@ -236,19 +248,38 @@ fn detect_shells() -> Vec<ShellInfo> {
             shell_type: "cmd".into(),
         });
     }
-    for cand in [
-        "C:\\Program Files\\Git\\bin\\bash.exe",
-        "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
-    ] {
-        if std::path::Path::new(cand).is_file() {
-            shells.push(ShellInfo {
-                id: "gitbash".into(),
-                name: "Git Bash".into(),
-                path: cand.into(),
-                shell_type: "bash".into(),
-            });
-            break;
+    // Git Bash：先从 git.exe 反推安装根（<root>\cmd\git.exe → <root>\bin\bash.exe），
+    // 不管 Git 装哪都能找到；找不到再退回标准路径
+    let mut bash_path: Option<String> = None;
+    if let Some(git) = which("git.exe") {
+        if let Some(root) = std::path::Path::new(&git)
+            .parent()
+            .and_then(|p| p.parent())
+        {
+            let b = root.join("bin").join("bash.exe");
+            if b.is_file() {
+                bash_path = Some(b.to_string_lossy().to_string());
+            }
         }
+    }
+    if bash_path.is_none() {
+        for cand in [
+            "C:\\Program Files\\Git\\bin\\bash.exe",
+            "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
+        ] {
+            if std::path::Path::new(cand).is_file() {
+                bash_path = Some(cand.to_string());
+                break;
+            }
+        }
+    }
+    if let Some(bp) = bash_path {
+        shells.push(ShellInfo {
+            id: "gitbash".into(),
+            name: "Git Bash".into(),
+            path: bp,
+            shell_type: "bash".into(),
+        });
     }
 
     shells

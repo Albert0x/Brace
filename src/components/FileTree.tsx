@@ -12,10 +12,12 @@ function TreeNode({
   entry,
   depth,
   onOpenDir,
+  showHidden,
 }: {
   entry: FileEntry;
   depth: number;
   onOpenDir: (path: string) => void;
+  showHidden: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<FileEntry[] | null>(null);
@@ -31,6 +33,10 @@ function TreeNode({
     }
     setExpanded((e) => !e);
   };
+
+  const visibleChildren = children?.filter(
+    (c) => showHidden || !c.name.startsWith("."),
+  );
 
   return (
     <div>
@@ -48,8 +54,14 @@ function TreeNode({
         <span className="tree-name">{entry.name}</span>
       </div>
       {expanded &&
-        children?.map((c) => (
-          <TreeNode key={c.path} entry={c} depth={depth + 1} onOpenDir={onOpenDir} />
+        visibleChildren?.map((c) => (
+          <TreeNode
+            key={c.path}
+            entry={c}
+            depth={depth + 1}
+            onOpenDir={onOpenDir}
+            showHidden={showHidden}
+          />
         ))}
     </div>
   );
@@ -59,9 +71,11 @@ function TreeNode({
 export default function FileTree({
   rootPath,
   onOpenDir,
+  showHidden,
 }: {
   rootPath: string;
   onOpenDir: (path: string) => void;
+  showHidden: boolean;
 }) {
   const [root, setRoot] = useState<FileEntry[]>([]);
 
@@ -77,6 +91,7 @@ export default function FileTree({
   }, [rootPath]);
 
   const rootName = rootPath.split(/[\\/]/).filter(Boolean).pop() ?? rootPath;
+  const visibleRoot = root.filter((e) => showHidden || !e.name.startsWith("."));
 
   return (
     <>
@@ -91,12 +106,13 @@ export default function FileTree({
         </span>
       </div>
       <div className="file-tree">
-        {root.map((e) => (
+        {visibleRoot.map((e) => (
           <TreeNode
             key={rootPath + "|" + e.path}
             entry={e}
             depth={0}
             onOpenDir={onOpenDir}
+            showHidden={showHidden}
           />
         ))}
       </div>

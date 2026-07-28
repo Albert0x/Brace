@@ -97,6 +97,23 @@ export const THEMES: Theme[] = [
   },
 ];
 
+// 亮色主题：外观选 Light、或 System 处于浅色时使用
+export const LIGHT_THEME: Theme = {
+  id: "light",
+  name: "Light",
+  desc: "亮色",
+  ui: {
+    base: "#f4f4f6",
+    bg: "rgba(244, 244, 246, 0.92)",
+    panel: "rgba(0, 0, 0, 0.05)",
+    fg: "#2a2a2e",
+    dim: "#8a8a90",
+    accent: "#0a84ff",
+    border: "rgba(0, 0, 0, 0.12)",
+  },
+  terminal: { background: "rgba(0,0,0,0)", foreground: "#2a2a2e", cursor: "#0a84ff" },
+};
+
 // 把主题的 UI 配色写入 CSS 变量
 export function applyTheme(theme: Theme) {
   const r = document.documentElement.style;

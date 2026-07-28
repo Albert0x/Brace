@@ -15,6 +15,8 @@ interface Props {
   termTheme: ITheme;
   initialCwd: string;
   fontSize: number;
+  cursorBlink: boolean;
+  webgl: boolean;
   shellPath: string;
   shellType: string;
   onRegisterSearch: (id: string, addon: SearchAddon) => void;
@@ -29,6 +31,8 @@ export default function TerminalView({
   termTheme,
   initialCwd,
   fontSize,
+  cursorBlink,
+  webgl,
   shellPath,
   shellType,
   onRegisterSearch,
@@ -73,7 +77,7 @@ export default function TerminalView({
     let disposed = false;
 
     const term = new Terminal({
-      cursorBlink: true,
+      cursorBlink,
       allowTransparency: true,
       fontFamily: "'Cascadia Mono', Consolas, 'Courier New', monospace",
       fontSize,
@@ -97,16 +101,17 @@ export default function TerminalView({
     termRef.current = term;
     fitRef.current = fit;
 
-    // Keep the optional renderer out of the initial bundle. xterm continues to
-    // use its canvas renderer when WebGL is unavailable or fails to initialize.
-    import("@xterm/addon-webgl")
-      .then(({ WebglAddon }) => {
-        if (disposed) return;
-        const webgl = new WebglAddon();
-        webgl.onContextLoss(() => webgl.dispose());
-        term.loadAddon(webgl);
-      })
-      .catch(() => {});
+    // WebGL 渲染：设置里开启时才懒加载（不进初始 bundle）；关闭则用 xterm 自带 canvas 渲染
+    if (webgl) {
+      import("@xterm/addon-webgl")
+        .then(({ WebglAddon }) => {
+          if (disposed) return;
+          const addon = new WebglAddon();
+          addon.onContextLoss(() => addon.dispose());
+          term.loadAddon(addon);
+        })
+        .catch(() => {});
+    }
 
     onRegisterSearch(sessionId, search);
 
@@ -174,6 +179,11 @@ export default function TerminalView({
   useEffect(() => {
     if (termRef.current) termRef.current.options.theme = termTheme;
   }, [termTheme]);
+
+  // 光标闪烁开关实时生效
+  useEffect(() => {
+    if (termRef.current) termRef.current.options.cursorBlink = cursorBlink;
+  }, [cursorBlink]);
 
   // 字体大小变化 → 应用并重新适配
   useEffect(() => {
