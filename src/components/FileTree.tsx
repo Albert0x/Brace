@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useT } from "../i18n";
 
 interface FileEntry {
   name: string;
@@ -19,6 +20,7 @@ function TreeNode({
   onOpenDir: (path: string) => void;
   showHidden: boolean;
 }) {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<FileEntry[] | null>(null);
 
@@ -45,7 +47,7 @@ function TreeNode({
         style={{ paddingLeft: 8 + depth * 14 }}
         onClick={toggle}
         onDoubleClick={() => entry.is_dir && onOpenDir(entry.path)}
-        title={entry.is_dir ? `双击进入：${entry.path}` : entry.path}
+        title={entry.is_dir ? t("tree.enterDir", { path: entry.path }) : entry.path}
       >
         <span className="tree-arrow">
           {entry.is_dir ? (expanded ? "▾" : "▸") : ""}
@@ -77,6 +79,7 @@ export default function FileTree({
   onOpenDir: (path: string) => void;
   showHidden: boolean;
 }) {
+  const t = useT();
   const [root, setRoot] = useState<FileEntry[]>([]);
 
   const load = (path: string) => {
@@ -99,7 +102,7 @@ export default function FileTree({
         <span title={rootPath}>{rootName.toUpperCase()}</span>
         <span
           className="sidebar-actions"
-          title="刷新"
+          title={t("sidebar.refresh")}
           onClick={() => load(rootPath)}
         >
           ⟳

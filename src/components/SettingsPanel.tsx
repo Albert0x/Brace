@@ -3,23 +3,21 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { THEMES, type Theme } from "../themes";
+import { useLang, LANGS, type Lang } from "../i18n";
 
 const REPO_URL = "https://github.com/Albert0x/HyperTerminal";
-const APP_VERSION = "0.1.0";
+const APP_VERSION = "0.1.1";
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  // 主题
   currentTheme: string;
   onSelectTheme: (t: Theme) => void;
-  // 背景
   hasBg: boolean;
   overlay: number;
   onPickBg: (dataUrl: string) => void;
   onClearBg: () => void;
   onOverlay: (v: number) => void;
-  // General
   appearance: string;
   onAppearance: (a: string) => void;
   uiZoom: number;
@@ -34,7 +32,6 @@ interface Props {
   onCursorBlink: (v: boolean) => void;
 }
 
-// 开关
 function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
@@ -47,7 +44,6 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
   );
 }
 
-// 一行设置项（标题 + 描述 + 右侧控件）
 function Row({
   title,
   desc,
@@ -71,7 +67,14 @@ function Row({
 type Tab = "general" | "themes" | "about";
 
 export default function SettingsPanel(props: Props) {
+  const { lang, setLang, t } = useLang();
   const [tab, setTab] = useState<Tab>("general");
+  const [checking, setChecking] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<{
+    type: "info" | "confirm";
+    message: string;
+    onConfirm?: () => void;
+  } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   if (!props.open) return null;
@@ -85,28 +88,58 @@ export default function SettingsPanel(props: Props) {
     e.target.value = "";
   };
 
-  const TABS: { id: Tab; label: string; icon: string }[] = [
-    { id: "general", label: "General", icon: "⚙" },
-    { id: "themes", label: "Themes", icon: "🎨" },
-    { id: "about", label: "About", icon: "ⓘ" },
+  const TABS: { id: Tab; key: string; icon: string }[] = [
+    { id: "general", key: "settings.general", icon: "⚙" },
+    { id: "themes", key: "settings.themes", icon: "🎨" },
+    { id: "about", key: "settings.about", icon: "ⓘ" },
   ];
 
   return (
     <div className="settings-overlay" onClick={props.onClose}>
       <div className="settings-panel" onClick={(e) => e.stopPropagation()}>
-        {/* 顶部 tab 栏 */}
+        {updateStatus && (
+          <div
+            className="update-modal-overlay"
+            onClick={() => setUpdateStatus(null)}
+          >
+            <div className="update-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="update-modal-msg">{updateStatus.message}</div>
+              <div className="update-modal-actions">
+                {updateStatus.type === "confirm" && (
+                  <button
+                    className="update-modal-btn"
+                    onClick={() => setUpdateStatus(null)}
+                  >
+                    {t("update.cancel")}
+                  </button>
+                )}
+                <button
+                  className="update-modal-btn primary"
+                  onClick={() => {
+                    const c = updateStatus.onConfirm;
+                    setUpdateStatus(null);
+                    c?.();
+                  }}
+                >
+                  {updateStatus.type === "confirm" ? t("update.confirm") : t("update.ok")}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="settings-tabs">
-          {TABS.map((t) => (
+          {TABS.map((tb) => (
             <button
-              key={t.id}
-              className={"settings-tab" + (tab === t.id ? " active" : "")}
-              onClick={() => setTab(t.id)}
+              key={tb.id}
+              className={"settings-tab" + (tab === tb.id ? " active" : "")}
+              onClick={() => setTab(tb.id)}
             >
-              <span className="settings-tab-icon">{t.icon}</span>
-              {t.label}
+              <span className="settings-tab-icon">{tb.icon}</span>
+              {t(tb.key)}
             </button>
           ))}
-          <button className="settings-close" onClick={props.onClose} title="关闭">
+          <button className="settings-close" onClick={props.onClose} title={t("settings.close")}>
             ×
           </button>
         </div>
@@ -115,33 +148,47 @@ export default function SettingsPanel(props: Props) {
           {/* ---------- General ---------- */}
           {tab === "general" && (
             <>
-              <h2 className="settings-h2">General</h2>
-              <p className="settings-sub">模式、终端与启动。</p>
+              <h2 className="settings-h2">{t("settings.general")}</h2>
+              <p className="settings-sub">{t("general.sub")}</p>
 
-              <div className="settings-section-title">外观</div>
+              <div className="settings-section-title">{t("general.appearance")}</div>
               <div className="appearance-grid">
-                {["System", "Light", "Dark"].map((a) => (
+                {[
+                  { id: "system", key: "appearance.system", icon: "🖥" },
+                  { id: "light", key: "appearance.light", icon: "☀" },
+                  { id: "dark", key: "appearance.dark", icon: "🌙" },
+                ].map((a) => (
                   <div
-                    key={a}
+                    key={a.id}
                     className={
-                      "appearance-card" +
-                      (props.appearance === a.toLowerCase() ? " selected" : "")
+                      "appearance-card" + (props.appearance === a.id ? " selected" : "")
                     }
-                    onClick={() => props.onAppearance(a.toLowerCase())}
+                    onClick={() => props.onAppearance(a.id)}
                   >
-                    <div className="appearance-icon">
-                      {a === "System" ? "🖥" : a === "Light" ? "☀" : "🌙"}
-                    </div>
-                    <div>{a}</div>
+                    <div className="appearance-icon">{a.icon}</div>
+                    <div>{t(a.key)}</div>
                   </div>
                 ))}
               </div>
-              <p className="settings-hint">
-                主题、背景与配色请到 <b>Themes</b> 页。
-              </p>
+              <p className="settings-hint">{t("general.themeHint")}</p>
 
-              <div className="settings-section-title">缩放</div>
-              <Row title="UI 缩放" desc={`${Math.round(props.uiZoom * 100)}%`}>
+              <div className="settings-section-title">{t("general.language")}</div>
+              <Row title={t("general.language")} desc={t("general.languageDesc")}>
+                <select
+                  className="lang-select"
+                  value={lang}
+                  onChange={(e) => setLang(e.target.value as Lang)}
+                >
+                  {LANGS.map((l) => (
+                    <option key={l.code} value={l.code}>
+                      {l.label}
+                    </option>
+                  ))}
+                </select>
+              </Row>
+
+              <div className="settings-section-title">{t("general.zoom")}</div>
+              <Row title={t("general.uiZoom")} desc={`${Math.round(props.uiZoom * 100)}%`}>
                 <input
                   type="range"
                   min={0.7}
@@ -153,19 +200,19 @@ export default function SettingsPanel(props: Props) {
                 />
               </Row>
 
-              <div className="settings-section-title">资源管理器</div>
-              <Row title="显示隐藏文件" desc="包含 .env / .gitignore 等以点开头的文件">
+              <div className="settings-section-title">{t("general.explorer")}</div>
+              <Row title={t("general.showHidden")} desc={t("general.showHiddenDesc")}>
                 <Toggle on={props.showHidden} onChange={props.onShowHidden} />
               </Row>
-              <Row title="Git 装饰" desc="标记改动、淡化被忽略的文件（待实现）">
+              <Row title={t("general.gitDeco")} desc={t("general.gitDecoDesc")}>
                 <Toggle on={props.gitDeco} onChange={props.onGitDeco} />
               </Row>
 
-              <div className="settings-section-title">终端</div>
-              <Row title="WebGL 渲染" desc="GPU 加速；文字花屏时可关（切换后新终端生效）">
+              <div className="settings-section-title">{t("general.terminal")}</div>
+              <Row title={t("general.webgl")} desc={t("general.webglDesc")}>
                 <Toggle on={props.webgl} onChange={props.onWebgl} />
               </Row>
-              <Row title="光标闪烁" desc="终端光标是否闪烁">
+              <Row title={t("general.cursorBlink")} desc={t("general.cursorBlinkDesc")}>
                 <Toggle on={props.cursorBlink} onChange={props.onCursorBlink} />
               </Row>
             </>
@@ -174,42 +221,42 @@ export default function SettingsPanel(props: Props) {
           {/* ---------- Themes ---------- */}
           {tab === "themes" && (
             <>
-              <h2 className="settings-h2">Themes</h2>
-              <p className="settings-sub">主题、背景图与自定义。</p>
+              <h2 className="settings-h2">{t("settings.themes")}</h2>
+              <p className="settings-sub">{t("themes.sub")}</p>
 
-              <div className="settings-section-title">主题</div>
+              <div className="settings-section-title">{t("themes.theme")}</div>
               <div className="theme-grid">
-                {THEMES.map((t) => (
+                {THEMES.map((th) => (
                   <div
-                    key={t.id}
+                    key={th.id}
                     className={
-                      "theme-card" + (t.id === props.currentTheme ? " selected" : "")
+                      "theme-card" + (th.id === props.currentTheme ? " selected" : "")
                     }
-                    onClick={() => props.onSelectTheme(t)}
+                    onClick={() => props.onSelectTheme(th)}
                   >
-                    <div className="theme-swatch" style={{ background: t.ui.bg }}>
-                      <span style={{ background: t.ui.accent }} />
-                      <span style={{ background: t.ui.fg }} />
-                      <span style={{ background: t.ui.dim }} />
+                    <div className="theme-swatch" style={{ background: th.ui.bg }}>
+                      <span style={{ background: th.ui.accent }} />
+                      <span style={{ background: th.ui.fg }} />
+                      <span style={{ background: th.ui.dim }} />
                     </div>
                     <div className="theme-meta">
-                      <div className="theme-name">{t.name}</div>
-                      <div className="theme-desc">{t.desc}</div>
+                      <div className="theme-name">{th.name}</div>
+                      <div className="theme-desc">{th.desc}</div>
                     </div>
                   </div>
                 ))}
               </div>
 
               <div className="settings-section-title" style={{ marginTop: 20 }}>
-                背景图
+                {t("themes.background")}
               </div>
               <div className="bg-controls">
                 <button className="bg-btn" onClick={() => fileRef.current?.click()}>
-                  选择图片…
+                  {t("themes.pickImage")}
                 </button>
                 {props.hasBg && (
                   <button className="bg-btn bg-btn-clear" onClick={props.onClearBg}>
-                    清除
+                    {t("themes.clear")}
                   </button>
                 )}
                 <input
@@ -222,7 +269,7 @@ export default function SettingsPanel(props: Props) {
               </div>
               {props.hasBg && (
                 <div className="bg-slider">
-                  <span>遮罩浓度</span>
+                  <span>{t("themes.overlay")}</span>
                   <input
                     type="range"
                     min={0.2}
@@ -242,34 +289,32 @@ export default function SettingsPanel(props: Props) {
           {/* ---------- About ---------- */}
           {tab === "about" && (
             <>
-              <h2 className="settings-h2">About</h2>
+              <h2 className="settings-h2">{t("settings.about")}</h2>
 
               <div className="about-card">
                 <div className="about-logo">⌘</div>
                 <div>
                   <div className="about-name">HyperTerminal</div>
-                  <div className="about-tagline">
-                    Tauri + React 打造的现代终端
-                  </div>
+                  <div className="about-tagline">{t("about.tagline")}</div>
                   <div className="about-ver">v{APP_VERSION}</div>
                 </div>
               </div>
 
               <div className="about-rows">
                 <div className="about-row">
-                  <span>Build</span>
+                  <span>{t("about.build")}</span>
                   <span>Windows · x86_64 · v{APP_VERSION}</span>
                 </div>
                 <div className="about-row">
-                  <span>Bundle ID</span>
+                  <span>{t("about.bundleId")}</span>
                   <span>com.hyperterminal.dev</span>
                 </div>
                 <div className="about-row">
-                  <span>License</span>
+                  <span>{t("about.license")}</span>
                   <span>MIT</span>
                 </div>
                 <div className="about-row">
-                  <span>Source</span>
+                  <span>{t("about.source")}</span>
                   <span
                     className="about-link"
                     onClick={() => openUrl(REPO_URL).catch(console.error)}
@@ -282,41 +327,52 @@ export default function SettingsPanel(props: Props) {
               <div className="about-actions">
                 <button
                   className="about-btn primary"
+                  disabled={checking}
                   onClick={async () => {
+                    if (checking) return;
+                    setChecking(true);
                     try {
                       const update = await check();
                       if (update) {
-                        if (
-                          confirm(
-                            `发现新版本 v${update.version}\n${update.body ?? ""}\n\n现在下载并安装？`,
-                          )
-                        ) {
-                          await update.downloadAndInstall();
-                          await relaunch();
-                        }
+                        setUpdateStatus({
+                          type: "confirm",
+                          message:
+                            t("update.found", { v: update.version }) +
+                            (update.body ? "\n\n" + update.body : ""),
+                          onConfirm: async () => {
+                            await update.downloadAndInstall();
+                            await relaunch();
+                          },
+                        });
                       } else {
-                        alert(`当前已是最新版本 v${APP_VERSION}`);
+                        setUpdateStatus({
+                          type: "info",
+                          message: t("update.latest", { v: APP_VERSION }),
+                        });
                       }
                     } catch (e) {
-                      alert(`检查更新失败：${e}`);
+                      setUpdateStatus({
+                        type: "info",
+                        message: t("update.failed", { e: String(e) }),
+                      });
+                    } finally {
+                      setChecking(false);
                     }
                   }}
                 >
-                  检查更新
+                  {checking ? t("about.checking") : t("about.checkUpdate")}
                 </button>
                 <button
                   className="about-btn"
                   onClick={() => openUrl(REPO_URL).catch(console.error)}
                 >
-                  View on GitHub
+                  {t("about.viewGithub")}
                 </button>
                 <button
                   className="about-btn"
-                  onClick={() =>
-                    openUrl(`${REPO_URL}/issues`).catch(console.error)
-                  }
+                  onClick={() => openUrl(`${REPO_URL}/issues`).catch(console.error)}
                 >
-                  Report an issue
+                  {t("about.reportIssue")}
                 </button>
               </div>
             </>

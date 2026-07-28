@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import type { SearchAddon } from "@xterm/addon-search";
@@ -6,6 +6,7 @@ import TerminalView from "./components/TerminalView";
 import FileTree from "./components/FileTree";
 import SettingsPanel from "./components/SettingsPanel";
 import { THEMES, LIGHT_THEME, applyTheme, type Theme } from "./themes";
+import { LangContext, createT, type Lang } from "./i18n";
 import "./App.css";
 
 interface ShellInfo {
@@ -25,6 +26,15 @@ interface Tab {
 function App() {
   const appWindow = getCurrentWindow();
 
+  // 语言（默认英文）
+  const [lang, setLang] = useState<Lang>(
+    () => (localStorage.getItem("ht-lang") as Lang) || "en",
+  );
+  useEffect(() => {
+    localStorage.setItem("ht-lang", lang);
+  }, [lang]);
+  const t = useMemo(() => createT(lang), [lang]);
+
   const [tabs, setTabs] = useState<Tab[]>(() => [
     { id: crypto.randomUUID(), initialCwd: "", shellPath: "", shellType: "powershell" },
   ]);
@@ -39,7 +49,7 @@ function App() {
 
   // 主题
   const [theme, setTheme] = useState<Theme>(
-    () => THEMES.find((t) => t.id === localStorage.getItem("ht-theme")) ?? THEMES[0],
+    () => THEMES.find((x) => x.id === localStorage.getItem("ht-theme")) ?? THEMES[0],
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
   useEffect(() => {
@@ -65,7 +75,7 @@ function App() {
     localStorage.setItem("ht-overlay", String(overlay));
   }, [overlay]);
 
-  // ---------- General 设置 ----------
+  // General 设置
   const [appearance, setAppearance] = useState(
     () => localStorage.getItem("ht-appearance") ?? "dark",
   );
@@ -87,33 +97,9 @@ function App() {
   useEffect(() => {
     localStorage.setItem("ht-appearance", appearance);
   }, [appearance]);
-  // 跟随系统明暗
-  const [systemDark, setSystemDark] = useState(
-    () => window.matchMedia("(prefers-color-scheme: dark)").matches,
-  );
-  useEffect(() => {
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const h = (e: MediaQueryListEvent) => setSystemDark(e.matches);
-    mq.addEventListener("change", h);
-    return () => mq.removeEventListener("change", h);
-  }, []);
-  // 实际生效的配色：外观(明暗) 决定亮/暗，Themes 选的是暗色下的具体配色
-  const effectiveTheme =
-    appearance === "light"
-      ? LIGHT_THEME
-      : appearance === "system"
-        ? systemDark
-          ? theme
-          : LIGHT_THEME
-        : theme;
-  useEffect(() => {
-    applyTheme(effectiveTheme);
-  }, [effectiveTheme]);
   useEffect(() => {
     localStorage.setItem("ht-zoom", String(uiZoom));
-    // 缩放整个 UI（webview 支持 zoom）
     (document.documentElement.style as any).zoom = String(uiZoom);
-    // zoom 改变了容器实际尺寸，通知终端重新 fit，否则内容会错乱
     requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
   }, [uiZoom]);
   useEffect(() => {
@@ -129,7 +115,29 @@ function App() {
     localStorage.setItem("ht-cursor", cursorBlink ? "1" : "0");
   }, [cursorBlink]);
 
-  // 终端字体大小
+  // 跟随系统明暗
+  const [systemDark, setSystemDark] = useState(
+    () => window.matchMedia("(prefers-color-scheme: dark)").matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const h = (e: MediaQueryListEvent) => setSystemDark(e.matches);
+    mq.addEventListener("change", h);
+    return () => mq.removeEventListener("change", h);
+  }, []);
+  const effectiveTheme =
+    appearance === "light"
+      ? LIGHT_THEME
+      : appearance === "system"
+        ? systemDark
+          ? theme
+          : LIGHT_THEME
+        : theme;
+  useEffect(() => {
+    applyTheme(effectiveTheme);
+  }, [effectiveTheme]);
+
+  // 字体大小
   const [fontSize, setFontSize] = useState<number>(
     () => Number(localStorage.getItem("ht-fontsize")) || 14,
   );
@@ -180,8 +188,8 @@ function App() {
   const addTab = (shell?: ShellInfo) => {
     const s = shell ?? defaultShell;
     const id = crypto.randomUUID();
-    setTabs((t) => [
-      ...t,
+    setTabs((tb) => [
+      ...tb,
       {
         id,
         initialCwd: activeCwd,
@@ -194,8 +202,8 @@ function App() {
 
   const removeTab = (id: string) => {
     setTabs((prev) => {
-      const idx = prev.findIndex((t) => t.id === id);
-      const next = prev.filter((t) => t.id !== id);
+      const idx = prev.findIndex((x) => x.id === id);
+      const next = prev.filter((x) => x.id !== id);
       if (id === activeId && next.length) {
         setActiveId(next[Math.max(0, idx - 1)].id);
       }
@@ -211,7 +219,7 @@ function App() {
   const switchTab = (dir: number) => {
     setTabs((prev) => {
       if (prev.length < 2) return prev;
-      const idx = prev.findIndex((t) => t.id === activeId);
+      const idx = prev.findIndex((x) => x.id === activeId);
       setActiveId(prev[(idx + dir + prev.length) % prev.length].id);
       return prev;
     });
@@ -263,7 +271,7 @@ function App() {
   }, [activeId, cwdMap, homeCwd, shells]);
 
   return (
-    <>
+    <LangContext.Provider value={{ lang, setLang, t }}>
       <div
         className="bg-layer"
         style={{ backgroundImage: bgImage ? `url(${bgImage})` : "none" }}
@@ -289,7 +297,7 @@ function App() {
                 {tabs.length > 1 && (
                   <span
                     className="tab-close"
-                    title="关闭标签 (Ctrl+W)"
+                    title={t("tab.close")}
                     onClick={(e) => closeTab(tab.id, e)}
                   >
                     ×
@@ -299,13 +307,13 @@ function App() {
             ))}
 
             <div className="tab-add-group">
-              <button className="tab-add" title="新建标签 (Ctrl+T)" onClick={() => addTab()}>
+              <button className="tab-add" title={t("tab.new")} onClick={() => addTab()}>
                 ＋
               </button>
               {shells.length > 1 && (
                 <button
                   className="tab-add-caret"
-                  title="选择 Shell"
+                  title={t("tab.selectShell")}
                   onClick={(e) => {
                     e.stopPropagation();
                     setShellMenu((v) => !v);
@@ -340,7 +348,7 @@ function App() {
               <input
                 ref={searchInputRef}
                 value={searchQuery}
-                placeholder="搜索 (Ctrl+F)"
+                placeholder={t("search.placeholder")}
                 onChange={(e) => {
                   setSearchQuery(e.target.value);
                   runSearch(e.target.value, 1);
@@ -351,21 +359,25 @@ function App() {
                 }}
               />
             </div>
-            <button className="icon-btn" title="设置" onClick={() => setSettingsOpen(true)}>
+            <button
+              className="icon-btn"
+              title={t("toolbar.settings")}
+              onClick={() => setSettingsOpen(true)}
+            >
               ⚙
             </button>
             <div className="win-controls">
-              <button className="win-btn" title="最小化" onClick={() => appWindow.minimize()}>
+              <button className="win-btn" title={t("win.minimize")} onClick={() => appWindow.minimize()}>
                 <svg width="10" height="10" viewBox="0 0 10 10">
                   <rect y="4.5" width="10" height="1" fill="currentColor" />
                 </svg>
               </button>
-              <button className="win-btn" title="最大化" onClick={() => appWindow.toggleMaximize()}>
+              <button className="win-btn" title={t("win.maximize")} onClick={() => appWindow.toggleMaximize()}>
                 <svg width="10" height="10" viewBox="0 0 10 10">
                   <rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" />
                 </svg>
               </button>
-              <button className="win-btn win-close" title="关闭" onClick={() => appWindow.close()}>
+              <button className="win-btn win-close" title={t("win.close")} onClick={() => appWindow.close()}>
                 <svg width="10" height="10" viewBox="0 0 10 10">
                   <path d="M1 1 L9 9 M9 1 L1 9" stroke="currentColor" strokeWidth="1.2" />
                 </svg>
@@ -397,9 +409,7 @@ function App() {
                 onUnregisterSearch={unregisterSearch}
               />
             ))}
-            {tabs.length === 0 && (
-              <div className="empty-hint">没有终端，点右上角 ＋ 或按 Ctrl+T 新建</div>
-            )}
+            {tabs.length === 0 && <div className="empty-hint">{t("main.empty")}</div>}
           </main>
         </div>
 
@@ -410,7 +420,7 @@ function App() {
           </div>
           <div className="status-right">
             <span>{fontSize}px</span>
-            <span>{tabs.length} 个终端</span>
+            <span>{t("status.terminals", { n: tabs.length })}</span>
             <span>{theme.name}</span>
             <span>UTF-8</span>
             <span>Win 11</span>
@@ -441,7 +451,7 @@ function App() {
         cursorBlink={cursorBlink}
         onCursorBlink={setCursorBlink}
       />
-    </>
+    </LangContext.Provider>
   );
 }
 

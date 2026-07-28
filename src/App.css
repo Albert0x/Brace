@@ -68,7 +68,7 @@ body,
   gap: 7px;
   height: 28px;
   padding: 0 14px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--ht-hover);
   border-radius: 7px;
   cursor: pointer;
   color: var(--ht-fg);
@@ -123,7 +123,7 @@ body,
 }
 
 .tab-add:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--ht-hover);
   color: #fff;
 }
 
@@ -138,7 +138,7 @@ body,
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--ht-hover);
   border-radius: 7px;
   padding: 5px 10px;
   width: 190px;
@@ -172,7 +172,7 @@ body,
 }
 
 .icon-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--ht-hover);
   color: #fff;
 }
 
@@ -196,7 +196,7 @@ body,
 }
 
 .win-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--ht-hover);
   color: #fff;
 }
 
@@ -354,7 +354,8 @@ body,
   max-width: 90vw;
   max-height: 80vh;
   overflow-y: auto;
-  background: rgba(28, 28, 32, 0.98);
+  background: var(--ht-base, #1c1c20);
+  color: var(--ht-fg);
   border: 1px solid var(--ht-border);
   border-radius: 12px;
   padding: 18px 20px 22px;
@@ -367,7 +368,7 @@ body,
   justify-content: space-between;
   font-size: 16px;
   font-weight: 600;
-  color: #eee;
+  color: var(--ht-fg);
   margin-bottom: 16px;
 }
 
@@ -383,7 +384,7 @@ body,
 }
 
 .settings-close:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--ht-active);
   color: #fff;
 }
 
@@ -419,7 +420,7 @@ body,
 
 .theme-card.selected {
   border-color: var(--ht-accent);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--ht-hover);
 }
 
 .theme-swatch {
@@ -448,7 +449,7 @@ body,
 .theme-name {
   font-size: 13px;
   font-weight: 600;
-  color: #eee;
+  color: var(--ht-fg);
 }
 
 .theme-desc {
@@ -467,7 +468,7 @@ body,
   padding: 7px 14px;
   border: 1px solid var(--ht-border);
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--ht-hover);
   color: var(--ht-fg);
   font-size: 13px;
   cursor: pointer;
@@ -475,7 +476,7 @@ body,
 }
 
 .bg-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--ht-active);
 }
 
 .bg-btn-clear {
@@ -506,7 +507,7 @@ body,
   position: fixed;
   z-index: 200;
   min-width: 128px;
-  background: rgba(32, 32, 36, 0.98);
+  background: var(--ht-base);
   border: 1px solid var(--ht-border);
   border-radius: 8px;
   padding: 4px;
@@ -514,6 +515,10 @@ body,
 }
 
 .ctx-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 28px;
   padding: 6px 12px;
   border-radius: 5px;
   font-size: 13px;
@@ -521,8 +526,13 @@ body,
   cursor: pointer;
 }
 
+.ctx-key {
+  font-size: 11px;
+  color: var(--ht-dim);
+}
+
 .ctx-item:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--ht-active);
 }
 
 .ctx-sep {
@@ -550,7 +560,7 @@ body,
 }
 
 .tab-add-caret:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--ht-hover);
   color: #fff;
 }
 
@@ -560,7 +570,7 @@ body,
   left: 0;
   z-index: 200;
   min-width: 170px;
-  background: rgba(32, 32, 36, 0.98);
+  background: var(--ht-base);
   border: 1px solid var(--ht-border);
   border-radius: 8px;
   padding: 4px;
@@ -579,7 +589,7 @@ body,
 }
 
 .shell-item:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--ht-active);
 }
 
 .shell-item-type {
@@ -616,8 +626,8 @@ body,
 }
 
 .settings-tab.active {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
+  background: var(--ht-active);
+  color: var(--ht-fg);
 }
 
 .settings-tabs .settings-close {
@@ -633,7 +643,7 @@ body,
 .settings-h2 {
   margin: 0 0 2px;
   font-size: 22px;
-  color: #eee;
+  color: var(--ht-fg);
 }
 
 .settings-sub {
@@ -673,7 +683,7 @@ body,
 
 .appearance-card.selected {
   border-color: var(--ht-accent);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--ht-hover);
 }
 
 .appearance-icon {
@@ -691,7 +701,7 @@ body,
 
 .set-row-title {
   font-size: 14px;
-  color: #ddd;
+  color: var(--ht-fg);
 }
 
 .set-row-desc {
@@ -714,7 +724,7 @@ body,
   height: 22px;
   border: none;
   border-radius: 11px;
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(128, 128, 128, 0.45);
   cursor: pointer;
   position: relative;
   transition: background 0.15s;
@@ -732,6 +742,7 @@ body,
   height: 18px;
   border-radius: 50%;
   background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
   transition: left 0.15s;
 }
 
@@ -766,7 +777,7 @@ body,
 .about-name {
   font-size: 18px;
   font-weight: 600;
-  color: #eee;
+  color: var(--ht-fg);
 }
 
 .about-tagline {
@@ -798,7 +809,7 @@ body,
 }
 
 .about-row > span:last-child {
-  color: #ddd;
+  color: var(--ht-fg);
 }
 
 .about-link {
@@ -815,18 +826,90 @@ body,
   padding: 9px 16px;
   border: 1px solid var(--ht-border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--ht-hover);
   color: var(--ht-fg);
   font-size: 13px;
   cursor: pointer;
 }
 
 .about-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--ht-active);
 }
 
 .about-btn.primary {
   border-color: var(--ht-accent);
+}
+
+/* ---------- 检查更新的自定义小弹窗 ---------- */
+.update-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.update-modal {
+  min-width: 280px;
+  max-width: 380px;
+  background: var(--ht-base, #1c1c20);
+  border: 1px solid var(--ht-border);
+  border-radius: 12px;
+  padding: 22px;
+  box-shadow: 0 16px 56px rgba(0, 0, 0, 0.55);
+  color: var(--ht-fg);
+}
+
+.update-modal-msg {
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  margin-bottom: 20px;
+}
+
+.update-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.update-modal-btn {
+  padding: 7px 18px;
+  border: 1px solid var(--ht-border);
+  border-radius: 7px;
+  background: var(--ht-hover);
+  color: var(--ht-fg);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.update-modal-btn:hover {
+  background: var(--ht-active);
+}
+
+.update-modal-btn.primary {
+  background: var(--ht-accent);
+  border-color: var(--ht-accent);
+  color: #fff;
+}
+
+/* ---------- 语言下拉 ---------- */
+.lang-select {
+  padding: 7px 12px;
+  border: 1px solid var(--ht-border);
+  border-radius: 7px;
+  background: var(--ht-hover);
+  color: var(--ht-fg);
+  font-size: 13px;
+  cursor: pointer;
+  min-width: 130px;
+}
+
+.lang-select option {
+  background: var(--ht-base);
+  color: var(--ht-fg);
 }
 
 /* ---------- 全局细滚动条（替换 WebView 默认的白粗条）---------- */
