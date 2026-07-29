@@ -22,6 +22,15 @@ custom backgrounds in a lightweight native window.
 - Built-in themes and optional custom backgrounds
 - Tauri desktop packaging for Windows and macOS
 
+## Installation
+
+Download the latest `Brace_x.y.z_x64-setup.exe` from the
+[releases page](https://github.com/Albert0x/Brace/releases/latest) and run it.
+
+> On first launch, Windows SmartScreen may show "Windows protected your PC"
+> because the installer isn't code-signed yet. Click **More info → Run anyway**
+> to continue. Once installed, Brace updates itself automatically.
+
 ## Technology
 
 | Layer | Technology |
