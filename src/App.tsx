@@ -23,6 +23,56 @@ interface Tab {
   shellType: string;
 }
 
+interface UsageStats {
+  model: string;
+  contextPct: number;
+  fiveHourPct: number;
+  fiveHourResetMs: number;
+  sevenDayPct: number;
+  sevenDayResetMs: number;
+  cacheAgeSec: number;
+  runningClaude: boolean;
+  hasRateLimits: boolean;
+  hasData: boolean;
+}
+
+// 重置倒计时：4h 7m / 35m / 2d 3h / ✓
+function fmtCountdown(resetMs: number): string {
+  const diff = resetMs - Date.now();
+  if (diff <= 0) return "✓";
+  const h = Math.floor(diff / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  if (h >= 24) return `${Math.floor(h / 24)}d ${h % 24}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+// 单条用量计：标签 + 进度条 + % + 可选重置倒计时
+function UsageMeter({
+  label,
+  pct,
+  reset,
+}: {
+  label: string;
+  pct: number;
+  reset?: number;
+}) {
+  const p = Math.max(0, Math.min(100, Math.round(pct)));
+  const level = p >= 90 ? " hi" : p >= 70 ? " mid" : "";
+  return (
+    <span className="usage-meter">
+      <span className="usage-label">{label}</span>
+      <span className="usage-bar">
+        <i className={"usage-fill" + level} style={{ width: `${p}%` }} />
+      </span>
+      <span className="usage-pct">{p}%</span>
+      {reset != null && reset > 0 && (
+        <span className="usage-reset">{fmtCountdown(reset)}</span>
+      )}
+    </span>
+  );
+}
+
 function App() {
   const appWindow = getCurrentWindow();
 
@@ -155,6 +205,22 @@ function App() {
     setCwdMap((m) => (m[sid] === path ? m : { ...m, [sid]: path }));
   }, []);
   const activeCwd = cwdMap[activeId] ?? homeCwd;
+
+  // Claude 用量：按当前标签轮询后端（含进程检测 + 读官方缓存），每 10s 一次
+  const [usage, setUsage] = useState<UsageStats | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const poll = () =>
+      invoke<UsageStats>("usage_stats", { sessionId: activeId })
+        .then((u) => alive && setUsage(u))
+        .catch(() => {});
+    poll();
+    const id = setInterval(poll, 10000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [activeId]);
 
   const tabLabel = (tab: Tab) => {
     const cwd = cwdMap[tab.id];
@@ -417,6 +483,26 @@ function App() {
           <div className="status-left">
             <span>◧ Files</span>
             <span>⑂ main</span>
+            {usage && usage.runningClaude && usage.hasData && (
+              <div className="usage">
+                {usage.model && <span className="usage-model">{usage.model}</span>}
+                <UsageMeter label={t("usage.context")} pct={usage.contextPct} />
+                {usage.hasRateLimits && (
+                  <>
+                    <UsageMeter
+                      label={t("usage.win5h")}
+                      pct={usage.fiveHourPct}
+                      reset={usage.fiveHourResetMs}
+                    />
+                    <UsageMeter
+                      label={t("usage.win7d")}
+                      pct={usage.sevenDayPct}
+                      reset={usage.sevenDayResetMs}
+                    />
+                  </>
+                )}
+              </div>
+            )}
           </div>
           <div className="status-right">
             <span>{fontSize}px</span>

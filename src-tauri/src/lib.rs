@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::sync::Mutex;
+
+use chrono::{DateTime, Utc};
 
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
@@ -10,6 +13,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 struct PtySession {
     writer: Box<dyn Write + Send>,
     master: Box<dyn MasterPty + Send>,
+    pid: Option<u32>,
 }
 
 #[derive(Default)]
@@ -70,6 +74,7 @@ fn pty_create(
     }
     let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
     drop(pair.slave);
+    let pid = child.process_id();
 
     let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
     let mut writer = pair.master.take_writer().map_err(|e| e.to_string())?;
@@ -117,7 +122,7 @@ fn pty_create(
         .sessions
         .lock()
         .map_err(|e| e.to_string())?
-        .insert(id, PtySession { writer, master: pair.master });
+        .insert(id, PtySession { writer, master: pair.master, pid });
     Ok(())
 }
 
@@ -285,6 +290,229 @@ fn detect_shells() -> Vec<ShellInfo> {
     shells
 }
 
+// ---------- Claude 用量统计 ----------
+// 数据源：~/.claude/statusline-cache.json，由 HyperTerminal 的 statusLine 采集脚本写入
+// （脚本接住 Claude Code 通过 statusLine stdin 喂的官方运行时数据）。
+// 这里只负责：① 判断当前标签是否真在跑 claude；② 读缓存把官方 context/5h/7d 吐给前端。
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct UsageStats {
+    model: String,
+    context_pct: f64,        // 官方上下文占用 %
+    five_hour_pct: f64,      // 官方 5h 额度用量 %
+    five_hour_reset_ms: i64, // 5h 重置时间（epoch ms，0=无）
+    seven_day_pct: f64,      // 官方 7d 额度用量 %
+    seven_day_reset_ms: i64, // 7d 重置时间（epoch ms，0=无）
+    cache_age_sec: i64,      // 缓存数据距今秒数
+    running_claude: bool,    // 当前标签终端是否真在跑 claude
+    has_rate_limits: bool,   // 缓存里有没有 5h/7d 额度（发过消息后才有）
+    has_data: bool,          // 缓存文件是否存在可读
+}
+
+// 判断给定 shell pid 的后代进程里是否有 claude 在跑
+fn claude_running_under(root: u32) -> bool {
+    use sysinfo::{Pid, ProcessesToUpdate, System};
+    let mut sys = System::new();
+    sys.refresh_processes(ProcessesToUpdate::All, true);
+    let procs = sys.processes();
+    let mut stack = vec![Pid::from_u32(root)];
+    let mut seen = std::collections::HashSet::new();
+    while let Some(p) = stack.pop() {
+        if !seen.insert(p) {
+            continue;
+        }
+        if let Some(proc_) = procs.get(&p) {
+            let name = proc_.name().to_string_lossy().to_lowercase();
+            let cmd = proc_
+                .cmd()
+                .iter()
+                .map(|s| s.to_string_lossy().to_lowercase())
+                .collect::<Vec<_>>()
+                .join(" ");
+            // node 跑 claude-code 时进程名是 node，命令行里含 claude
+            if name.contains("claude") || cmd.contains("claude") {
+                return true;
+            }
+        }
+        for (cpid, cproc) in procs {
+            if cproc.parent() == Some(p) {
+                stack.push(*cpid);
+            }
+        }
+    }
+    false
+}
+
+// 读 statusLine 采集脚本写的缓存
+fn read_statusline_cache() -> Option<serde_json::Value> {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .ok()?;
+    let f = PathBuf::from(home).join(".claude").join("statusline-cache.json");
+    let content = std::fs::read_to_string(f).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+// resets_at 归一化到 epoch ms（兼容数字秒与 ISO 字符串）
+fn reset_to_ms(v: &serde_json::Value) -> i64 {
+    if let Some(n) = v.as_f64() {
+        return (n * 1000.0) as i64;
+    }
+    if let Some(s) = v.as_str() {
+        if let Ok(dt) = s.parse::<DateTime<Utc>>() {
+            return dt.timestamp_millis();
+        }
+    }
+    0
+}
+
+// 前端每隔十几秒轮询一次；传当前活跃标签的 session_id 做进程检测
+#[tauri::command]
+fn usage_stats(manager: State<'_, PtyManager>, session_id: String) -> UsageStats {
+    let mut stats = UsageStats::default();
+
+    // 当前标签真在跑 claude 才显示；否则前端隐藏整条
+    let shell_pid = manager
+        .sessions
+        .lock()
+        .ok()
+        .and_then(|s| s.get(&session_id).and_then(|x| x.pid));
+    stats.running_claude = shell_pid.map_or(false, claude_running_under);
+    if !stats.running_claude {
+        return stats;
+    }
+
+    let cache = match read_statusline_cache() {
+        Some(c) => c,
+        None => return stats,
+    };
+    stats.has_data = true;
+
+    if let Some(m) = cache["model"]["display_name"]
+        .as_str()
+        .or_else(|| cache["model"]["id"].as_str())
+    {
+        stats.model = m.to_string();
+    }
+    stats.context_pct = cache["context_window"]["used_percentage"]
+        .as_f64()
+        .unwrap_or(0.0);
+
+    let rl = &cache["rate_limits"];
+    if rl.is_object() {
+        stats.has_rate_limits = true;
+        stats.five_hour_pct = rl["five_hour"]["used_percentage"].as_f64().unwrap_or(0.0);
+        stats.five_hour_reset_ms = reset_to_ms(&rl["five_hour"]["resets_at"]);
+        stats.seven_day_pct = rl["seven_day"]["used_percentage"].as_f64().unwrap_or(0.0);
+        stats.seven_day_reset_ms = reset_to_ms(&rl["seven_day"]["resets_at"]);
+    }
+
+    if let Some(u) = cache["updated_at"].as_f64() {
+        stats.cache_age_sec = (Utc::now().timestamp() as f64 - u) as i64;
+    }
+
+    stats
+}
+
+// ---------- statusLine 配置（挂/卸采集脚本到 ~/.claude/settings.json）----------
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct StatuslineStatus {
+    configured: bool,        // 已挂 HyperTerminal 的采集脚本
+    occupied_by_other: bool, // statusLine 已被别的命令占用
+    other_command: String,   // 占用它的命令（供前端提示）
+    node_available: bool,    // node 是否在 PATH（脚本要用）
+}
+
+fn settings_path() -> Option<PathBuf> {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .ok()?;
+    Some(PathBuf::from(home).join(".claude").join("settings.json"))
+}
+
+// 采集脚本落地路径：打包后在 resource_dir，dev 下 tauri 也会拷到 resource_dir
+fn statusline_script_path(app: &AppHandle) -> Option<PathBuf> {
+    let rd = app.path().resource_dir().ok()?;
+    let cands = [
+        rd.join("resources").join("statusline-writer.cjs"),
+        rd.join("statusline-writer.cjs"),
+        rd.join("_up_").join("resources").join("statusline-writer.cjs"),
+    ];
+    cands.into_iter().find(|p| p.exists())
+}
+
+#[tauri::command]
+fn statusline_status(app: AppHandle) -> StatuslineStatus {
+    let mut st = StatuslineStatus::default();
+    st.node_available = which("node.exe").is_some() || which("node").is_some();
+    if let Some(p) = settings_path() {
+        if let Ok(content) = std::fs::read_to_string(&p) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(cmd) = v["statusLine"]["command"].as_str() {
+                    if cmd.contains("statusline-writer") {
+                        st.configured = true;
+                    } else if !cmd.is_empty() {
+                        st.occupied_by_other = true;
+                        st.other_command = cmd.to_string();
+                    }
+                }
+            }
+        }
+    }
+    let _ = app; // resource 路径检查留给 configure 时
+    st
+}
+
+#[tauri::command]
+fn configure_statusline(app: AppHandle, enable: bool) -> Result<(), String> {
+    let sp = settings_path().ok_or("找不到 settings.json 路径")?;
+    let mut root: serde_json::Value = std::fs::read_to_string(&sp)
+        .ok()
+        .and_then(|c| serde_json::from_str(&c).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    if !root.is_object() {
+        root = serde_json::json!({});
+    }
+
+    if enable {
+        let script = statusline_script_path(&app).ok_or("找不到采集脚本（打包资源缺失）")?;
+        // 被别的 statusLine 占用则拒绝覆盖
+        if let Some(cmd) = root["statusLine"]["command"].as_str() {
+            if !cmd.is_empty() && !cmd.contains("statusline-writer") {
+                return Err(format!("已存在其他 statusLine，未覆盖：{}", cmd));
+            }
+        }
+        let script_str = script.display().to_string();
+        // resource_dir() 在 Windows 会带 \\?\ 扩展长度前缀，node/claude 不认，去掉
+        let clean = script_str.strip_prefix(r"\\?\").unwrap_or(&script_str);
+        let command = format!("node \"{}\"", clean);
+        root["statusLine"] = serde_json::json!({
+            "type": "command",
+            "command": command,
+            "padding": 0
+        });
+    } else {
+        let is_ours = root["statusLine"]["command"]
+            .as_str()
+            .map_or(false, |c| c.contains("statusline-writer"));
+        if is_ours {
+            if let Some(obj) = root.as_object_mut() {
+                obj.remove("statusLine");
+            }
+        }
+    }
+
+    if let Some(dir) = sp.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let text = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())?;
+    std::fs::write(&sp, text).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -309,7 +537,10 @@ pub fn run() {
             pty_close,
             list_dir,
             home_dir,
-            detect_shells
+            detect_shells,
+            usage_stats,
+            statusline_status,
+            configure_statusline
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

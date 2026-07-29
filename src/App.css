@@ -328,6 +328,54 @@ body,
   gap: 14px;
 }
 
+/* Claude 用量条（官方数据） */
+.usage {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.usage-model {
+  color: var(--ht-accent);
+  font-weight: 600;
+}
+.usage-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.usage-label {
+  color: var(--ht-dim);
+}
+.usage-bar {
+  width: 46px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--ht-border);
+  overflow: hidden;
+  display: inline-block;
+}
+.usage-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--ht-accent);
+  transition: width 0.4s ease;
+}
+.usage-fill.mid {
+  background: #d8a657;
+}
+.usage-fill.hi {
+  background: #e06c75;
+}
+.usage-pct {
+  font-variant-numeric: tabular-nums;
+  min-width: 30px;
+}
+.usage-reset {
+  color: var(--ht-dim);
+  font-variant-numeric: tabular-nums;
+}
+
 .empty-hint {
   display: flex;
   align-items: center;

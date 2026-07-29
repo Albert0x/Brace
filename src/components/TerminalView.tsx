@@ -48,8 +48,14 @@ export default function TerminalView({
   const paste = () => {
     navigator.clipboard
       .readText()
-      .then((t) => {
-        if (t) invoke("pty_write", { id: sessionId, data: t }).catch(console.error);
+      .then((text) => {
+        if (text) {
+          // 用 xterm 的 paste 而非裸 pty_write：自动带 bracketed paste 包裹，
+          // 让 claude/vim 等能区分"粘贴"与"手动键入"（多行不会被逐行执行），
+          // 并把焦点拉回终端，粘完能直接回车。
+          termRef.current?.paste(text);
+          termRef.current?.focus();
+        }
       })
       .catch(() => {});
   };
@@ -127,7 +133,8 @@ export default function TerminalView({
         }
       }
       if (e.ctrlKey && e.shiftKey && e.code === "KeyV") {
-        paste();
+        // 不手动粘贴——交给 WebView 原生 paste 事件（xterm textarea 处理，带 bracketed paste）。
+        // 这里仅 return false，阻止 xterm 把 Ctrl+Shift+V 当控制字符发出，避免粘贴两遍。
         return false;
       }
       return true;
