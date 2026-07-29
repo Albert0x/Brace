@@ -7,7 +7,7 @@ import { THEMES, type Theme } from "../themes";
 import { useLang, LANGS, type Lang } from "../i18n";
 
 const REPO_URL = "https://github.com/Albert0x/Brace";
-const APP_VERSION = "0.1.1";
+const APP_VERSION = "0.1.2";
 
 interface StatuslineStatus {
   configured: boolean;
