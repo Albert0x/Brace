@@ -6,7 +6,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { THEMES, type Theme } from "../themes";
 import { useLang, LANGS, type Lang } from "../i18n";
 
-const REPO_URL = "https://github.com/Albert0x/HyperTerminal";
+const REPO_URL = "https://github.com/Albert0x/Brace";
 const APP_VERSION = "0.1.1";
 
 interface StatuslineStatus {
@@ -340,7 +340,7 @@ export default function SettingsPanel(props: Props) {
               <div className="about-card">
                 <div className="about-logo">⌘</div>
                 <div>
-                  <div className="about-name">HyperTerminal</div>
+                  <div className="about-name">Brace</div>
                   <div className="about-tagline">{t("about.tagline")}</div>
                   <div className="about-ver">v{APP_VERSION}</div>
                 </div>
@@ -353,7 +353,7 @@ export default function SettingsPanel(props: Props) {
                 </div>
                 <div className="about-row">
                   <span>{t("about.bundleId")}</span>
-                  <span>com.hyperterminal.dev</span>
+                  <span>com.brace.dev</span>
                 </div>
                 <div className="about-row">
                   <span>{t("about.license")}</span>
@@ -365,7 +365,7 @@ export default function SettingsPanel(props: Props) {
                     className="about-link"
                     onClick={() => openUrl(REPO_URL).catch(console.error)}
                   >
-                    Albert0x/HyperTerminal
+                    Albert0x/Brace
                   </span>
                 </div>
               </div>

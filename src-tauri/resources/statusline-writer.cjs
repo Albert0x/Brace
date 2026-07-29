@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /*
- * HyperTerminal 用量采集器
+ * Brace 用量采集器
  * ------------------------------------------------------------
  * 作为 Claude Code 的 statusLine command 运行。Claude Code 每次刷新底部状态栏，
  * 会把一份 JSON 通过 stdin 喂进来（含 model / context_window / rate_limits），
- * 这是官方运行时数据。本脚本把它写进共享缓存，供 HyperTerminal 读取显示。
+ * 这是官方运行时数据。本脚本把它写进共享缓存，供 Brace 读取显示。
  *
  * 关键点：rate_limits（5h/7d 额度）只在 API 响应后才随 stdin 传入，空闲刷新时没有。
  * 所以用"更新则覆盖、缺失则沿用缓存"的策略，保证多个会话看到一致的账号级额度。
@@ -84,8 +84,8 @@ function main() {
     /* 缓存写失败不影响 claude 本身 */
   }
 
-  // HyperTerminal 已在自己的状态栏显示用量，这里不再往 claude 原生底栏输出，
-  // 避免同一份数据显示两遍。输出空串即可（数据已写入缓存供 HyperTerminal 读取）。
+  // Brace 已在自己的状态栏显示用量，这里不再往 claude 原生底栏输出，
+  // 避免同一份数据显示两遍。输出空串即可（数据已写入缓存供 Brace 读取）。
   process.stdout.write("");
 }
 

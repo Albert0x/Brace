@@ -1,4 +1,4 @@
-# Contributing to HyperTerminal
+# Contributing to Brace
 
 This document defines the minimum engineering standard for every contributor.
 Platform-specific work must preserve behavior on platforms the contributor

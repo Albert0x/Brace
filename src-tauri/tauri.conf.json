@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "HyperTerminal",
+  "productName": "Brace",
   "version": "0.1.1",
-  "identifier": "com.hyperterminal.dev",
+  "identifier": "com.brace.dev",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "HyperTerminal",
+        "title": "Brace",
         "width": 1000,
         "height": 680,
         "decorations": false,
@@ -39,7 +39,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/Albert0x/HyperTerminal/releases/latest/download/latest.json"
+        "https://github.com/Albert0x/Brace/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERBOUJCMTYwNUM4N0I0NkEKUldScXRJZGNZTEdiMnExdVM4Z1BXZWJhdWFGbWljMU01WkdoTjlNalpqMmFQcW1XYzltczNFRkIK"
     }
