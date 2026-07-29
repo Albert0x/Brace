@@ -86,6 +86,7 @@ export default function SettingsPanel(props: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [slStatus, setSlStatus] = useState<StatuslineStatus | null>(null);
   const [slBusy, setSlBusy] = useState(false);
+  const [slError, setSlError] = useState("");
   useEffect(() => {
     if (props.open)
       invoke<StatuslineStatus>("statusline_status")
@@ -94,10 +95,11 @@ export default function SettingsPanel(props: Props) {
   }, [props.open]);
   const toggleStatusline = async (on: boolean) => {
     setSlBusy(true);
+    setSlError("");
     try {
       await invoke("configure_statusline", { enable: on });
-    } catch {
-      /* 失败（如被占用）时下面刷新状态，展示原因 */
+    } catch (e) {
+      setSlError(String(e));
     }
     try {
       setSlStatus(await invoke<StatuslineStatus>("statusline_status"));
@@ -259,6 +261,11 @@ export default function SettingsPanel(props: Props) {
               {slStatus?.occupiedByOther && (
                 <p className="settings-hint">
                   {t("usage.occupied", { cmd: slStatus.otherCommand })}
+                </p>
+              )}
+              {slError && (
+                <p className="settings-hint" style={{ color: "#e06c75" }}>
+                  {slError}
                 </p>
               )}
             </>

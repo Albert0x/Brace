@@ -33,4 +33,6 @@ tauri-plugin-process = "2"
 chrono = "0.4"
 # 进程检测：判断当前终端是否真在跑 claude
 sysinfo = "0.33"
+# 读注册表判断 Windows 版本（Win10 的 acrylic 有黑边，需区分 Win10/11）
+winreg = "0.10"
 
