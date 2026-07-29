@@ -44,9 +44,8 @@
   .nav-spacer { flex: 1; }
   .nav a.link { color: var(--dim); font-size: 14px; }
   .nav a.link:hover { color: var(--fg); text-decoration: none; }
-  .lang-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-  .lang-btn { font-family: var(--mono); font-size: 12.5px; padding: 6px 12px; background: transparent; color: var(--dim); border: 0; cursor: pointer; }
-  .lang-btn.active { background: var(--grad); color: #06070a; font-weight: 700; }
+  .lang-select { font-family: var(--mono); font-size: 12.5px; padding: 6px 10px; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+  .lang-select:hover { border-color: rgba(255, 255, 255, 0.22); }
   .doc { padding: 48px 0 80px; }
   .doc h1 { font-size: clamp(30px, 5vw, 42px); letter-spacing: -0.02em; margin: 0 0 6px; }
   .doc .sub { color: var(--dim); font-family: var(--mono); font-size: 13px; margin: 0 0 8px; }
@@ -75,10 +74,10 @@
     <a class="brand" href="/"><span class="mark"><img src="icon.png" alt="Brace"></span>Brace</a>
     <span class="nav-spacer"></span>
     <a class="link" href="/">← Home</a>
-    <div class="lang-toggle">
-      <button class="lang-btn" data-set="en" onclick="setLang('en')">EN</button>
-      <button class="lang-btn" data-set="zh" onclick="setLang('zh')">中</button>
-    </div>
+    <select class="lang-select" aria-label="Language" onchange="setLang(this.value)">
+      <option value="en">English</option>
+      <option value="zh">中文</option>
+    </select>
   </div>
 </nav>
 
@@ -269,14 +268,12 @@
     document.querySelectorAll('[data-lang]').forEach(function (el) {
       el.style.display = el.getAttribute('data-lang') === l ? '' : 'none';
     });
-    document.querySelectorAll('.lang-btn').forEach(function (b) {
-      b.classList.toggle('active', b.getAttribute('data-set') === l);
-    });
+    document.querySelectorAll('.lang-select').forEach(function (s) { s.value = l; });
     document.documentElement.lang = l === 'zh' ? 'zh-CN' : 'en';
-    try { localStorage.setItem('brace-docs-lang', l); } catch (e) {}
+    try { localStorage.setItem('brace-lang', l); } catch (e) {}
   }
   var saved = null;
-  try { saved = localStorage.getItem('brace-docs-lang'); } catch (e) {}
+  try { saved = localStorage.getItem('brace-lang'); } catch (e) {}
   setLang(saved || (navigator.language && navigator.language.indexOf('zh') === 0 ? 'zh' : 'en'));
 </script>
 </body>
