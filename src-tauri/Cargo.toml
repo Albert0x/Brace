@@ -29,4 +29,8 @@ window-vibrancy = "0.5"
 # 自动更新
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+# 用量窗口时间计算（5小时/7天滚动窗口）
+chrono = "0.4"
+# 进程检测：判断当前终端是否真在跑 claude
+sysinfo = "0.33"
 

@@ -1,4 +1,5 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -7,6 +8,13 @@ import { useLang, LANGS, type Lang } from "../i18n";
 
 const REPO_URL = "https://github.com/Albert0x/HyperTerminal";
 const APP_VERSION = "0.1.1";
+
+interface StatuslineStatus {
+  configured: boolean;
+  occupiedByOther: boolean;
+  otherCommand: string;
+  nodeAvailable: boolean;
+}
 
 interface Props {
   open: boolean;
@@ -76,6 +84,28 @@ export default function SettingsPanel(props: Props) {
     onConfirm?: () => void;
   } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [slStatus, setSlStatus] = useState<StatuslineStatus | null>(null);
+  const [slBusy, setSlBusy] = useState(false);
+  useEffect(() => {
+    if (props.open)
+      invoke<StatuslineStatus>("statusline_status")
+        .then(setSlStatus)
+        .catch(() => {});
+  }, [props.open]);
+  const toggleStatusline = async (on: boolean) => {
+    setSlBusy(true);
+    try {
+      await invoke("configure_statusline", { enable: on });
+    } catch {
+      /* 失败（如被占用）时下面刷新状态，展示原因 */
+    }
+    try {
+      setSlStatus(await invoke<StatuslineStatus>("statusline_status"));
+    } catch {
+      /* ignore */
+    }
+    setSlBusy(false);
+  };
 
   if (!props.open) return null;
 
@@ -215,6 +245,22 @@ export default function SettingsPanel(props: Props) {
               <Row title={t("general.cursorBlink")} desc={t("general.cursorBlinkDesc")}>
                 <Toggle on={props.cursorBlink} onChange={props.onCursorBlink} />
               </Row>
+
+              <div className="settings-section-title">{t("usage.title")}</div>
+              <Row title={t("usage.enable")} desc={t("usage.enableDesc")}>
+                <Toggle
+                  on={!!slStatus?.configured}
+                  onChange={(v) => !slBusy && toggleStatusline(v)}
+                />
+              </Row>
+              {slStatus && !slStatus.nodeAvailable && (
+                <p className="settings-hint">{t("usage.noNode")}</p>
+              )}
+              {slStatus?.occupiedByOther && (
+                <p className="settings-hint">
+                  {t("usage.occupied", { cmd: slStatus.otherCommand })}
+                </p>
+              )}
             </>
           )}
 

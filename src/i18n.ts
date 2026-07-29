@@ -16,6 +16,16 @@ export const MESSAGES: Record<Lang, Record<string, string>> = {
     "win.close": "Close",
     "main.empty": "No terminal. Click ＋ or press Ctrl+T to open one.",
     "status.terminals": "{n} terminal(s)",
+    "usage.context": "Context",
+    "usage.win5h": "5h",
+    "usage.win7d": "7d",
+    "usage.title": "Claude Usage",
+    "usage.enable": "Show usage in status bar",
+    "usage.enableDesc":
+      "Installs a statusLine collector into Claude Code to receive official usage data. Modifies ~/.claude/settings.json.",
+    "usage.noNode": "node not found — the collector script can't run.",
+    "usage.occupied":
+      "Another statusLine is already configured; not overwritten: {cmd}",
     // 侧栏 / 文件树
     "sidebar.refresh": "Refresh",
     "tree.enterDir": "Double-click to enter: {path}",
@@ -86,6 +96,15 @@ export const MESSAGES: Record<Lang, Record<string, string>> = {
     "win.close": "关闭",
     "main.empty": "没有终端，点右上角 ＋ 或按 Ctrl+T 新建。",
     "status.terminals": "{n} 个终端",
+    "usage.context": "上下文",
+    "usage.win5h": "5h 用量",
+    "usage.win7d": "7d 用量",
+    "usage.title": "Claude 用量",
+    "usage.enable": "在状态栏显示用量",
+    "usage.enableDesc":
+      "挂一个 statusLine 采集脚本到 Claude Code，接收官方用量数据。会修改 ~/.claude/settings.json。",
+    "usage.noNode": "未检测到 node，采集脚本无法运行。",
+    "usage.occupied": "已存在其他 statusLine，未覆盖：{cmd}",
     "sidebar.refresh": "刷新",
     "tree.enterDir": "双击进入：{path}",
     "ctx.copy": "复制",
