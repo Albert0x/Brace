@@ -450,6 +450,14 @@ fn usage_stats(manager: State<'_, PtyManager>, session_id: String) -> UsageStats
                 Some(c) => c,
                 None => return stats,
             };
+            // 新鲜度：缓存超过 15 分钟没更新（claude 没在活跃跑，或开关已关脚本停写），
+            // 不拿旧数据糊弄——直接返回，前端隐藏整条
+            let age = cache["updated_at"]
+                .as_f64()
+                .map_or(f64::INFINITY, |u| Utc::now().timestamp() as f64 - u);
+            if age > 900.0 {
+                return stats;
+            }
             stats.has_data = true;
             if let Some(m) = cache["model"]["display_name"]
                 .as_str()
@@ -574,6 +582,12 @@ fn configure_statusline(app: AppHandle, enable: bool) -> Result<(), String> {
                 obj.remove("statusLine");
             }
         }
+        // 卸载时删掉残留缓存，避免关开关后前端仍读到旧数据继续显示
+        if let Ok(home) = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
+            let _ = std::fs::remove_file(
+                PathBuf::from(home).join(".claude").join("statusline-cache.json"),
+            );
+        }
     }
 
     if let Some(dir) = sp.parent() {
@@ -582,6 +596,19 @@ fn configure_statusline(app: AppHandle, enable: bool) -> Result<(), String> {
     let text = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())?;
     std::fs::write(&sp, text).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+// Win11 判断（build >= 22000）。Win10 的 acrylic 亚克力有边缘黑边 + 拖动卡顿，需区分。
+#[cfg(target_os = "windows")]
+fn is_win11() -> bool {
+    use winreg::enums::HKEY_LOCAL_MACHINE;
+    use winreg::RegKey;
+    RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion")
+        .ok()
+        .and_then(|k| k.get_value::<String, _>("CurrentBuildNumber").ok())
+        .and_then(|b| b.parse::<u32>().ok())
+        .map_or(false, |n| n >= 22000)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -596,7 +623,11 @@ pub fn run() {
             {
                 use window_vibrancy::apply_acrylic;
                 if let Some(window) = app.get_webview_window("main") {
-                    let _ = apply_acrylic(&window, Some((18, 18, 18, 160)));
+                    // 只有 Win11 才上 acrylic；Win10 的 acrylic 边缘有黑边、拖动卡，
+                    // 退回普通背景层（窗口正常，只是少了那层毛玻璃）
+                    if is_win11() {
+                        let _ = apply_acrylic(&window, Some((18, 18, 18, 160)));
+                    }
                 }
             }
             Ok(())
