@@ -39,9 +39,8 @@
   .nav-spacer { flex: 1; }
   .nav-links { display: flex; gap: 26px; font-size: 14px; color: var(--dim); }
   .nav-links a:hover { color: var(--fg); }
-  .lang-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-  .lang-btn { font-family: var(--mono); font-size: 12.5px; padding: 6px 11px; background: transparent; color: var(--dim); border: 0; cursor: pointer; }
-  .lang-btn.active { background: var(--grad); color: #06070a; font-weight: 700; }
+  .lang-select { font-family: var(--mono); font-size: 12.5px; padding: 6px 10px; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+  .lang-select:hover { border-color: rgba(255, 255, 255, 0.22); }
   .nav-cta { font-family: var(--mono); font-size: 13px; padding: 8px 16px; border-radius: 8px; background: var(--grad); color: #06070a; font-weight: 700; }
   @media (max-width: 760px) { .nav-links { display: none; } }
   header { padding: 76px 0 30px; }
@@ -109,10 +108,10 @@
       <a href="docs.html" data-i18n="nav.docs">Docs</a>
       <a href="https://github.com/Albert0x/Brace" target="_blank" rel="noopener">GitHub</a>
     </div>
-    <div class="lang-toggle">
-      <button class="lang-btn" data-set="en" onclick="setLang('en')">EN</button>
-      <button class="lang-btn" data-set="zh" onclick="setLang('zh')">中</button>
-    </div>
+    <select class="lang-select" aria-label="Language" onchange="setLang(this.value)">
+      <option value="en">English</option>
+      <option value="zh">中文</option>
+    </select>
     <a class="nav-cta" href="https://github.com/Albert0x/Brace/releases/latest" target="_blank" rel="noopener" data-i18n="nav.download">Download</a>
   </div>
 </nav>
@@ -293,9 +292,7 @@
       var v = dict[el.getAttribute("data-i18n")];
       if (v != null) el.innerHTML = v;
     });
-    document.querySelectorAll(".lang-btn").forEach(function (b) {
-      b.classList.toggle("active", b.getAttribute("data-set") === l);
-    });
+    document.querySelectorAll(".lang-select").forEach(function (s) { s.value = l; });
     document.documentElement.lang = l === "zh" ? "zh-CN" : "en";
     try { localStorage.setItem("brace-lang", l); } catch (e) {}
   }
