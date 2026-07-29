@@ -20,6 +20,15 @@ Brace 是一款基于 Tauri、React、TypeScript、Rust 和 xterm.js
 - 内置主题和自定义背景
 - 支持 Tauri 的 Windows 与 macOS 桌面打包
 
+## 安装
+
+从 [发布页](https://github.com/Albert0x/Brace/releases/latest) 下载最新的
+`Brace_x.y.z_x64-setup.exe` 运行即可。
+
+> 首次启动时，Windows SmartScreen 可能弹出「Windows 已保护你的电脑」——
+> 因为安装包尚未做代码签名。点击 **更多信息 → 仍要运行** 继续。
+> 装好后 Brace 会自动更新。
+
 ## 技术栈
 
 | 分层 | 技术 |
