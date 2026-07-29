@@ -31,6 +31,9 @@ Download the latest `Brace_x.y.z_x64-setup.exe` from the
 > because the installer isn't code-signed yet. Click **More info → Run anyway**
 > to continue. Once installed, Brace updates itself automatically.
 
+See the **[full user guide](docs/USAGE.md)** for tabs & shells, the two-way file
+tree, AI usage display, keyboard shortcuts, themes, and settings.
+
 ## Technology
 
 | Layer | Technology |

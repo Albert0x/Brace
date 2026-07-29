@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Brace — User Guide</title>
+<meta name="description" content="Brace user guide: tabs & shells, two-way file tree, Claude/Codex usage in the status bar, keyboard shortcuts, themes, settings and auto-updates.">
+<link rel="icon" href="icon.png">
+<style>
+  :root {
+    --bg: #0a0b0e; --bg-2: #0d0f14; --surface: #13151c;
+    --line: rgba(255, 255, 255, 0.07);
+    --fg: #e8eaef; --dim: #838b9e; --dim-2: #5b6274;
+    --cyan: #22d3ee; --purple: #b57bff;
+    --grad: linear-gradient(120deg, #22d3ee, #7aa2f7 42%, #b57bff);
+    --mono: "Cascadia Mono", "Cascadia Code", ui-monospace, "SF Mono", Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1000px 500px at 80% -10%, rgba(122, 90, 248, 0.12), transparent 60%),
+      radial-gradient(800px 450px at 5% 5%, rgba(34, 211, 238, 0.08), transparent 55%),
+      var(--bg);
+    color: var(--fg); font-family: var(--sans); line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--cyan); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { font-family: var(--mono); font-size: 0.88em; color: var(--cyan);
+    background: rgba(122,162,247,0.1); padding: 1px 6px; border-radius: 5px; }
+  .wrap { width: min(820px, 92vw); margin: 0 auto; }
+  nav {
+    position: sticky; top: 0; z-index: 20; backdrop-filter: blur(12px);
+    background: rgba(10, 11, 14, 0.72); border-bottom: 1px solid var(--line);
+  }
+  .nav-in { display: flex; align-items: center; gap: 14px; padding: 12px 0; width: min(1000px, 92vw); margin: 0 auto; }
+  .brand { display: flex; align-items: center; gap: 11px; font-family: var(--mono); font-weight: 600; color: var(--fg); }
+  .brand:hover { text-decoration: none; }
+  .mark { width: 30px; height: 30px; border-radius: 8px; overflow: hidden; }
+  .mark img { width: 100%; height: 100%; display: block; object-fit: cover; }
+  .nav-spacer { flex: 1; }
+  .nav a.link { color: var(--dim); font-size: 14px; }
+  .nav a.link:hover { color: var(--fg); text-decoration: none; }
+  .lang-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .lang-btn { font-family: var(--mono); font-size: 12.5px; padding: 6px 12px; background: transparent; color: var(--dim); border: 0; cursor: pointer; }
+  .lang-btn.active { background: var(--grad); color: #06070a; font-weight: 700; }
+  .doc { padding: 48px 0 80px; }
+  .doc h1 { font-size: clamp(30px, 5vw, 42px); letter-spacing: -0.02em; margin: 0 0 6px; }
+  .doc .sub { color: var(--dim); font-family: var(--mono); font-size: 13px; margin: 0 0 8px; }
+  .doc h2 { font-size: 23px; letter-spacing: -0.01em; margin: 46px 0 0; padding-top: 18px; border-top: 1px solid var(--line); }
+  .doc h3 { font-size: 17px; margin: 26px 0 0; color: var(--fg); }
+  .doc p { color: #c5cad6; margin: 12px 0 0; }
+  .doc ul { margin: 12px 0 0; padding-left: 22px; color: #c5cad6; }
+  .doc li { margin: 6px 0; }
+  .doc strong { color: var(--fg); }
+  .doc blockquote { margin: 16px 0 0; padding: 12px 16px; border-left: 3px solid var(--purple);
+    background: var(--surface); border-radius: 0 8px 8px 0; color: var(--dim); font-size: 14.5px; }
+  .doc table { width: 100%; margin: 16px 0 0; border-collapse: collapse; font-size: 14px; }
+  .doc th, .doc td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  .doc th { color: var(--dim-2); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .doc td:first-child { font-family: var(--mono); color: var(--cyan); white-space: nowrap; }
+  .doc kbd { font-family: var(--mono); font-size: 0.85em; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; color: var(--fg); }
+  footer { border-top: 1px solid var(--line); padding: 28px 0; color: var(--dim-2);
+    font-family: var(--mono); font-size: 12px; }
+  footer a { color: var(--dim); }
+</style>
+</head>
+<body>
+<nav>
+  <div class="nav-in">
+    <a class="brand" href="/"><span class="mark"><img src="icon.png" alt="Brace"></span>Brace</a>
+    <span class="nav-spacer"></span>
+    <a class="link" href="/">← Home</a>
+    <div class="lang-toggle">
+      <button class="lang-btn" data-set="en" onclick="setLang('en')">EN</button>
+      <button class="lang-btn" data-set="zh" onclick="setLang('zh')">中</button>
+    </div>
+  </div>
+</nav>
+
+<!-- ══════════ English ══════════ -->
+<div data-lang="en">
+<div class="wrap doc">
+  <h1>Brace User Guide</h1>
+  <p class="sub">Lightweight Windows terminal · Tauri + Rust</p>
+  <p>Brace's standout feature is showing your <strong>Claude / Codex usage live in the status bar</strong>. This guide covers everything you'll use day to day.</p>
+
+  <h2>Installation</h2>
+  <ul>
+    <li>Download <code>Brace_x.y.z_x64-setup.exe</code> from <a href="https://github.com/Albert0x/Brace/releases/latest" target="_blank" rel="noopener">Releases</a> and run it.</li>
+    <li>On first launch Windows SmartScreen may warn about an unrecognized app (the installer isn't code-signed yet) — click <strong>More info → Run anyway</strong>.</li>
+    <li>Once installed, Brace checks for and delivers updates on its own.</li>
+  </ul>
+
+  <h2>Interface overview</h2>
+  <p>Three columns plus a status bar:</p>
+  <ul>
+    <li><strong>Top bar</strong> — tabs, new-tab <code>＋</code> (with <code>▾</code> to pick a shell), search, settings <code>⚙</code>, window controls.</li>
+    <li><strong>Left</strong> — file tree, follows the active terminal's directory.</li>
+    <li><strong>Center</strong> — the terminal.</li>
+    <li><strong>Bottom status bar</strong> — AI usage on the left (when claude/codex runs), font size / terminal count / theme / encoding / OS on the right.</li>
+  </ul>
+
+  <h2>Tabs &amp; shells</h2>
+  <ul>
+    <li><strong>New tab</strong>: click <code>＋</code> or press <kbd>Ctrl+T</kbd> — new tabs inherit the current directory.</li>
+    <li><strong>Pick a shell</strong>: the <code>▾</code> next to <code>＋</code> — PowerShell, PowerShell 7, CMD, Git Bash (auto-detected).</li>
+    <li><strong>Close</strong>: <code>×</code> on the tab or <kbd>Ctrl+W</kbd>. <strong>Switch</strong>: <kbd>Ctrl+Tab</kbd> / <kbd>Ctrl+Shift+Tab</kbd>.</li>
+  </ul>
+
+  <h2>File tree sync</h2>
+  <p>The tree and terminal stay in two-way sync:</p>
+  <ul>
+    <li><code>cd</code> in the terminal → the tree re-roots there.</li>
+    <li>Double-click a folder in the tree → the terminal <code>cd</code>s there.</li>
+    <li>Click <code>⟳</code> to refresh; enable <strong>Show hidden files</strong> in Settings → General for dotfiles.</li>
+  </ul>
+
+  <h2>AI usage display <span style="color:var(--dim);font-weight:400">(the highlight)</span></h2>
+  <p>Your Claude / Codex usage, live in the status bar. It only shows when the active tab is <strong>actually running</strong> claude or codex.</p>
+  <h3>Claude</h3>
+  <p>Claude's official usage (context / 5-hour / weekly + reset times) comes through Claude Code's <strong>statusLine</strong> channel — enable it once:</p>
+  <ul>
+    <li>Settings → <strong>General</strong> → <strong>Agent Usage</strong> → turn on "Show Claude usage in status bar" (installs a collector into <code>~/.claude/settings.json</code>; won't overwrite an existing statusLine).</li>
+    <li><strong>Start / restart claude</strong> (statusLine is read at launch), then send a message — quota data appears after the first API response.</li>
+  </ul>
+  <p>Reading the bar: <code>[model] Context 61% · 5h 35% 4h7m · 7d 48% 35h</code> — context window fullness, plus 5-hour and weekly quota with reset countdowns.</p>
+  <h3>Codex</h3>
+  <p>No setup — just run <code>codex</code> and the bar shows <code>Codex Context x% · xxK tok</code>.</p>
+  <blockquote>Codex shows only context and tokens, not 5-hour/weekly limits — its local session files leave the rate_limits fields empty.</blockquote>
+  <h3>Pasting images to Claude</h3>
+  <p>Use <kbd>Alt+V</kbd>, <strong>not</strong> <kbd>Ctrl+V</kbd>. Ctrl+V is claimed by the terminal as "paste text" so the image never reaches claude; Alt+V is Claude Code's dedicated image-paste key on Windows.</p>
+
+  <h2>Keyboard shortcuts</h2>
+  <table>
+    <tr><th>Shortcut</th><th>Action</th></tr>
+    <tr><td>Ctrl+T</td><td>New tab</td></tr>
+    <tr><td>Ctrl+W</td><td>Close current tab</td></tr>
+    <tr><td>Ctrl+Tab / Ctrl+Shift+Tab</td><td>Next / previous tab</td></tr>
+    <tr><td>Ctrl+F</td><td>Focus the search box</td></tr>
+    <tr><td>Ctrl+Shift+C</td><td>Copy selection</td></tr>
+    <tr><td>Ctrl+Shift+V</td><td>Paste (bracketed paste)</td></tr>
+    <tr><td>Ctrl+= / Ctrl+-</td><td>Zoom font in / out</td></tr>
+    <tr><td>Ctrl+0</td><td>Reset font to default</td></tr>
+    <tr><td>Alt+V</td><td>(in claude) paste a clipboard image</td></tr>
+    <tr><td>Right-click</td><td>Copy / Paste / Select all / Clear</td></tr>
+  </table>
+
+  <h2>Themes &amp; backgrounds</h2>
+  <ul>
+    <li><strong>Five themes</strong>: HyperDark, Tokyo Night, Dracula, Nord, Gruvbox — switch instantly.</li>
+    <li><strong>Background image</strong>: set any image as a frosted-glass background with an overlay slider.</li>
+    <li><strong>Appearance</strong>: System / Light / Dark in Settings → General.</li>
+  </ul>
+
+  <h2>Settings</h2>
+  <ul>
+    <li><strong>General</strong> — appearance, language (en/zh), UI zoom, hidden files, Git decorations, WebGL, cursor blink, Agent Usage.</li>
+    <li><strong>Themes</strong> — theme selection and background image.</li>
+    <li><strong>About</strong> — version, check for updates, GitHub / issue links.</li>
+  </ul>
+
+  <h2>Auto-updates</h2>
+  <p>Settings → About → <strong>Check for updates</strong>. New versions download and relaunch automatically. The update chain works from v0.1.2 onward; older HyperTerminal installs have a different bundle id, so install Brace once by hand.</p>
+
+  <p style="margin-top:32px">Questions or ideas? Open a <a href="https://github.com/Albert0x/Brace/issues" target="_blank" rel="noopener">GitHub Issue</a>.</p>
+</div>
+</div>
+
+<!-- ══════════ 简体中文 ══════════ -->
+<div data-lang="zh" style="display:none">
+<div class="wrap doc">
+  <h1>Brace 使用文档</h1>
+  <p class="sub">轻量 Windows 终端 · Tauri + Rust</p>
+  <p>Brace 最大的特色是<strong>在状态栏实时显示 Claude / Codex 的用量</strong>。本文覆盖日常使用的全部功能。</p>
+
+  <h2>安装</h2>
+  <ul>
+    <li>从 <a href="https://github.com/Albert0x/Brace/releases/latest" target="_blank" rel="noopener">Releases</a> 下载 <code>Brace_x.y.z_x64-setup.exe</code> 运行。</li>
+    <li>首次安装 Windows SmartScreen 会弹「Windows 已保护你的电脑」(安装包尚未代码签名) — 点 <strong>更多信息 → 仍要运行</strong>。</li>
+    <li>装好后 Brace 会自动检查并推送更新。</li>
+  </ul>
+
+  <h2>界面概览</h2>
+  <p>三栏 + 状态栏布局:</p>
+  <ul>
+    <li><strong>顶栏</strong> — 标签、新建 <code>＋</code>(旁 <code>▾</code> 选 Shell)、搜索、设置 <code>⚙</code>、窗口控制。</li>
+    <li><strong>左侧</strong> — 文件树,跟随当前终端目录。</li>
+    <li><strong>中间</strong> — 终端。</li>
+    <li><strong>底部状态栏</strong> — 左边 AI 用量(跑 claude/codex 时),右边字体/终端数/主题/编码/系统。</li>
+  </ul>
+
+  <h2>标签与 Shell</h2>
+  <ul>
+    <li><strong>新建标签</strong>:点 <code>＋</code> 或 <kbd>Ctrl+T</kbd> — 新标签自动继承当前目录。</li>
+    <li><strong>选择 Shell</strong>:<code>＋</code> 旁的 <code>▾</code> — PowerShell、PowerShell 7、CMD、Git Bash(自动检测)。</li>
+    <li><strong>关闭</strong>:标签上 <code>×</code> 或 <kbd>Ctrl+W</kbd>。<strong>切换</strong>:<kbd>Ctrl+Tab</kbd> / <kbd>Ctrl+Shift+Tab</kbd>。</li>
+  </ul>
+
+  <h2>文件树联动</h2>
+  <p>文件树和终端双向同步:</p>
+  <ul>
+    <li>终端 <code>cd</code> → 文件树跟着切换根目录。</li>
+    <li>文件树里双击文件夹 → 终端自动 <code>cd</code> 过去。</li>
+    <li>点 <code>⟳</code> 刷新;设置 → 常规 → <strong>显示隐藏文件</strong> 可看 dotfiles。</li>
+  </ul>
+
+  <h2>AI 用量显示 <span style="color:var(--dim);font-weight:400">(特色)</span></h2>
+  <p>在状态栏实时显示 Claude / Codex 用量,只在当前标签<strong>真的在跑</strong> claude 或 codex 时显示。</p>
+  <h3>Claude</h3>
+  <p>Claude 官方用量(context / 5小时 / 周 + 重置时间)走 Claude Code 的 <strong>statusLine</strong> 通道,需先启用一次:</p>
+  <ul>
+    <li>设置 → <strong>常规</strong> → <strong>Agent Usage</strong> → 打开「在状态栏显示 Claude 用量」(往 <code>~/.claude/settings.json</code> 挂采集脚本;已有别的 statusLine 不覆盖)。</li>
+    <li><strong>启动 / 重启 claude</strong>(statusLine 启动时读),发一条消息 — 额度数据要 API 响应后才有。</li>
+  </ul>
+  <p>状态栏读法:<code>[模型] Context 61% · 5h 35% 4h7m · 7d 48% 35h</code> — 上下文占用,以及 5小时、周额度用量 % 加重置倒计时。</p>
+  <h3>Codex</h3>
+  <p>无需配置 — 直接跑 <code>codex</code>,状态栏自动显示 <code>Codex Context x% · xxK tok</code>。</p>
+  <blockquote>Codex 只有 context 和 token,没有 5小时/周额度 — 它本地会话文件里的 rate_limits 通常为空。</blockquote>
+  <h3>给 Claude 粘贴图片</h3>
+  <p>用 <kbd>Alt+V</kbd>,<strong>不是</strong> <kbd>Ctrl+V</kbd>。Ctrl+V 被终端占用当「粘贴文本」,图片传不到 claude;Alt+V 是 Claude Code 在 Windows 上专门的图片粘贴键。</p>
+
+  <h2>快捷键</h2>
+  <table>
+    <tr><th>快捷键</th><th>作用</th></tr>
+    <tr><td>Ctrl+T</td><td>新建标签</td></tr>
+    <tr><td>Ctrl+W</td><td>关闭当前标签</td></tr>
+    <tr><td>Ctrl+Tab / Ctrl+Shift+Tab</td><td>下一个 / 上一个标签</td></tr>
+    <tr><td>Ctrl+F</td><td>聚焦搜索框</td></tr>
+    <tr><td>Ctrl+Shift+C</td><td>复制选中</td></tr>
+    <tr><td>Ctrl+Shift+V</td><td>粘贴(bracketed paste)</td></tr>
+    <tr><td>Ctrl+= / Ctrl+-</td><td>放大 / 缩小字体</td></tr>
+    <tr><td>Ctrl+0</td><td>字体恢复默认</td></tr>
+    <tr><td>Alt+V</td><td>(在 claude 里)粘贴剪贴板图片</td></tr>
+    <tr><td>右键</td><td>复制 / 粘贴 / 全选 / 清屏</td></tr>
+  </table>
+
+  <h2>主题与背景</h2>
+  <ul>
+    <li><strong>五款主题</strong>:HyperDark、Tokyo Night、Dracula、Nord、Gruvbox — 即时切换。</li>
+    <li><strong>背景图</strong>:设任意图片为毛玻璃背景,配遮罩浓度滑块。</li>
+    <li><strong>外观</strong>:设置 → 常规 — 跟随系统 / 浅色 / 深色。</li>
+  </ul>
+
+  <h2>设置</h2>
+  <ul>
+    <li><strong>常规</strong> — 外观、语言(中/英)、UI 缩放、隐藏文件、Git 装饰、WebGL、光标闪烁、Agent Usage。</li>
+    <li><strong>主题</strong> — 主题选择、背景图。</li>
+    <li><strong>关于</strong> — 版本、检查更新、GitHub / 反馈链接。</li>
+  </ul>
+
+  <h2>自动更新</h2>
+  <p>设置 → 关于 → <strong>检查更新</strong>。有新版自动下载并重启。更新链路从 v0.1.2 起正常;更早的 HyperTerminal 因 bundle id 不同,需手动装一次 Brace。</p>
+
+  <p style="margin-top:32px">有问题或建议,欢迎到 <a href="https://github.com/Albert0x/Brace/issues" target="_blank" rel="noopener">GitHub Issues</a> 反馈。</p>
+</div>
+</div>
+
+<footer>
+  <div class="wrap">Built with Tauri, React &amp; Rust · MIT License · © 2026 · <a href="/">Brace</a></div>
+</footer>
+
+<script>
+  function setLang(l) {
+    document.querySelectorAll('[data-lang]').forEach(function (el) {
+      el.style.display = el.getAttribute('data-lang') === l ? '' : 'none';
+    });
+    document.querySelectorAll('.lang-btn').forEach(function (b) {
+      b.classList.toggle('active', b.getAttribute('data-set') === l);
+    });
+    document.documentElement.lang = l === 'zh' ? 'zh-CN' : 'en';
+    try { localStorage.setItem('brace-docs-lang', l); } catch (e) {}
+  }
+  var saved = null;
+  try { saved = localStorage.getItem('brace-docs-lang'); } catch (e) {}
+  setLang(saved || (navigator.language && navigator.language.indexOf('zh') === 0 ? 'zh' : 'en'));
+</script>
+</body>
+</html>

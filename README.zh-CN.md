@@ -29,6 +29,9 @@ Brace 是一款基于 Tauri、React、TypeScript、Rust 和 xterm.js
 > 因为安装包尚未做代码签名。点击 **更多信息 → 仍要运行** 继续。
 > 装好后 Brace 会自动更新。
 
+完整功能说明见 **[使用文档](docs/USAGE.zh-CN.md)**——标签与 Shell、双向文件树、AI
+用量显示、快捷键、主题与设置。
+
 ## 技术栈
 
 | 分层 | 技术 |
