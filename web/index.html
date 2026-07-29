@@ -42,7 +42,8 @@
   .lang-select { font-family: var(--mono); font-size: 12.5px; padding: 6px 10px; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
   .lang-select:hover { border-color: rgba(255, 255, 255, 0.22); }
   .nav-cta { font-family: var(--mono); font-size: 13px; padding: 8px 16px; border-radius: 8px; background: var(--grad); color: #06070a; font-weight: 700; }
-  @media (max-width: 760px) { .nav-links { display: none; } }
+  .nav-links { flex-wrap: wrap; }
+  @media (max-width: 560px) { .nav-links { display: none; } }
   header { padding: 76px 0 30px; }
   .hero { display: grid; grid-template-columns: 1.04fr 1.2fr; gap: 50px; align-items: center; }
   h1 { font-size: clamp(38px, 5.4vw, 62px); line-height: 1.03; letter-spacing: -0.03em; margin: 18px 0 0; text-wrap: balance; font-weight: 800; }
