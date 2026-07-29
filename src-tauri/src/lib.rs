@@ -291,7 +291,7 @@ fn detect_shells() -> Vec<ShellInfo> {
 }
 
 // ---------- Claude 用量统计 ----------
-// 数据源：~/.claude/statusline-cache.json，由 HyperTerminal 的 statusLine 采集脚本写入
+// 数据源：~/.claude/statusline-cache.json，由 Brace 的 statusLine 采集脚本写入
 // （脚本接住 Claude Code 通过 statusLine stdin 喂的官方运行时数据）。
 // 这里只负责：① 判断当前标签是否真在跑 claude；② 读缓存把官方 context/5h/7d 吐给前端。
 
@@ -491,7 +491,7 @@ fn usage_stats(manager: State<'_, PtyManager>, session_id: String) -> UsageStats
 #[derive(Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct StatuslineStatus {
-    configured: bool,        // 已挂 HyperTerminal 的采集脚本
+    configured: bool,        // 已挂 Brace 的采集脚本
     occupied_by_other: bool, // statusLine 已被别的命令占用
     other_command: String,   // 占用它的命令（供前端提示）
     node_available: bool,    // node 是否在 PATH（脚本要用）

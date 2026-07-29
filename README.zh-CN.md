@@ -1,9 +1,9 @@
-# HyperTerminal
+# Brace
 
 [![English](https://img.shields.io/badge/Language-English-0969da)](./README.md)
 [![简体中文](https://img.shields.io/badge/语言-简体中文-d73a49)](./README.zh-CN.md)
 
-HyperTerminal 是一款基于 Tauri、React、TypeScript、Rust 和 xterm.js
+Brace 是一款基于 Tauri、React、TypeScript、Rust 和 xterm.js
 构建的桌面终端应用。它在轻量级原生窗口中提供多终端标签、Shell
 选择、跟随工作目录的文件树、终端搜索、主题和自定义背景。
 
