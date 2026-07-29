@@ -8,18 +8,12 @@
 <link rel="icon" href="icon.png">
 <style>
   :root {
-    --bg: #0a0b0e;
-    --bg-2: #0d0f14;
-    --surface: #13151c;
+    --bg: #0a0b0e; --bg-2: #0d0f14; --surface: #13151c;
     --line: rgba(255, 255, 255, 0.07);
-    --fg: #e8eaef;
-    --dim: #838b9e;
-    --dim-2: #5b6274;
-    --cyan: #22d3ee;
-    --purple: #b57bff;
+    --fg: #e8eaef; --dim: #838b9e; --dim-2: #5b6274;
+    --cyan: #22d3ee; --purple: #b57bff;
     --grad: linear-gradient(120deg, #22d3ee, #7aa2f7 42%, #b57bff);
-    --mono: "Cascadia Mono", "Cascadia Code", ui-monospace, "SF Mono",
-      Consolas, "Liberation Mono", monospace;
+    --mono: "Cascadia Mono", "Cascadia Code", ui-monospace, "SF Mono", Consolas, monospace;
     --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
   * { box-sizing: border-box; }
@@ -30,83 +24,44 @@
       radial-gradient(1200px 600px at 78% -10%, rgba(122, 90, 248, 0.14), transparent 60%),
       radial-gradient(900px 500px at 8% 8%, rgba(34, 211, 238, 0.1), transparent 55%),
       var(--bg);
-    color: var(--fg);
-    font-family: var(--sans);
-    line-height: 1.6;
-    -webkit-font-smoothing: antialiased;
-    overflow-x: hidden;
+    color: var(--fg); font-family: var(--sans); line-height: 1.6;
+    -webkit-font-smoothing: antialiased; overflow-x: hidden;
   }
   a { color: inherit; text-decoration: none; }
   code { font-family: var(--mono); font-size: 0.92em; color: var(--cyan); }
   .wrap { width: min(1120px, 92vw); margin: 0 auto; }
-  .eyebrow {
-    font-family: var(--mono);
-    font-size: 12.5px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--cyan);
-  }
-  nav {
-    position: sticky; top: 0; z-index: 20;
-    backdrop-filter: blur(12px);
-    background: rgba(10, 11, 14, 0.72);
-    border-bottom: 1px solid var(--line);
-  }
+  .eyebrow { font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--cyan); }
+  nav { position: sticky; top: 0; z-index: 20; backdrop-filter: blur(12px); background: rgba(10, 11, 14, 0.72); border-bottom: 1px solid var(--line); }
   .nav-in { display: flex; align-items: center; gap: 14px; padding: 12px 0; }
-  .brand {
-    display: flex; align-items: center; gap: 11px;
-    font-family: var(--mono); font-weight: 600; letter-spacing: 0.01em;
-  }
+  .brand { display: flex; align-items: center; gap: 11px; font-family: var(--mono); font-weight: 600; letter-spacing: 0.01em; }
   .mark { width: 32px; height: 32px; border-radius: 9px; overflow: hidden; flex-shrink: 0; }
   .mark img { width: 100%; height: 100%; display: block; object-fit: cover; }
   .nav-spacer { flex: 1; }
   .nav-links { display: flex; gap: 26px; font-size: 14px; color: var(--dim); }
   .nav-links a:hover { color: var(--fg); }
-  .nav-cta {
-    font-family: var(--mono); font-size: 13px; padding: 8px 16px;
-    border-radius: 8px; background: var(--grad); color: #06070a; font-weight: 700;
-  }
-  @media (max-width: 720px) { .nav-links { display: none; } }
+  .lang-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .lang-btn { font-family: var(--mono); font-size: 12.5px; padding: 6px 11px; background: transparent; color: var(--dim); border: 0; cursor: pointer; }
+  .lang-btn.active { background: var(--grad); color: #06070a; font-weight: 700; }
+  .nav-cta { font-family: var(--mono); font-size: 13px; padding: 8px 16px; border-radius: 8px; background: var(--grad); color: #06070a; font-weight: 700; }
+  @media (max-width: 760px) { .nav-links { display: none; } }
   header { padding: 76px 0 30px; }
   .hero { display: grid; grid-template-columns: 1.04fr 1.2fr; gap: 50px; align-items: center; }
-  h1 {
-    font-size: clamp(38px, 5.4vw, 62px); line-height: 1.03; letter-spacing: -0.03em;
-    margin: 18px 0 0; text-wrap: balance; font-weight: 800;
-  }
+  h1 { font-size: clamp(38px, 5.4vw, 62px); line-height: 1.03; letter-spacing: -0.03em; margin: 18px 0 0; text-wrap: balance; font-weight: 800; }
   .grad { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
   .lede { margin: 20px 0 0; font-size: 17.5px; color: var(--dim); max-width: 48ch; }
   .cta-row { display: flex; align-items: center; gap: 16px; margin-top: 30px; flex-wrap: wrap; }
-  .btn {
-    font-family: var(--mono); font-size: 14.5px; font-weight: 700; padding: 13px 22px;
-    border-radius: 10px; display: inline-flex; align-items: center; gap: 10px;
-    transition: transform 0.14s ease, box-shadow 0.14s ease;
-  }
+  .btn { font-family: var(--mono); font-size: 14.5px; font-weight: 700; padding: 13px 22px; border-radius: 10px; display: inline-flex; align-items: center; gap: 10px; transition: transform 0.14s ease, box-shadow 0.14s ease; }
   .btn-primary { background: var(--grad); color: #06070a; box-shadow: 0 8px 30px rgba(122, 130, 247, 0.28); }
   .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 12px 38px rgba(122, 130, 247, 0.4); }
   .btn-ghost { border: 1px solid var(--line); color: var(--fg); background: var(--surface); }
   .btn-ghost:hover { border-color: rgba(255, 255, 255, 0.2); }
   .meta { margin-top: 16px; font-family: var(--mono); font-size: 12.5px; color: var(--dim-2); display: flex; gap: 16px; flex-wrap: wrap; }
   .meta b { color: var(--dim); font-weight: 600; }
-
-  /* 真实产品截图容器 */
-  .shot {
-    border-radius: 14px; overflow: hidden; background: var(--bg-2);
-    border: 1px solid var(--line); position: relative;
-    box-shadow: 0 40px 90px -30px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(122, 162, 247, 0.08);
-  }
-  .shot::before {
-    content: ""; position: absolute; inset: 0; padding: 1px; border-radius: 14px; z-index: 2;
-    background: linear-gradient(140deg, rgba(34, 211, 238, 0.5), transparent 35%, transparent 65%, rgba(181, 123, 255, 0.5));
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none;
-  }
+  .shot { border-radius: 14px; overflow: hidden; background: var(--bg-2); border: 1px solid var(--line); position: relative; box-shadow: 0 40px 90px -30px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(122, 162, 247, 0.08); }
+  .shot::before { content: ""; position: absolute; inset: 0; padding: 1px; border-radius: 14px; z-index: 2; background: linear-gradient(140deg, rgba(34, 211, 238, 0.5), transparent 35%, transparent 65%, rgba(181, 123, 255, 0.5)); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none; }
   .shot img { width: 100%; display: block; }
-
   @media (max-width: 880px) { .hero { grid-template-columns: 1fr; gap: 34px; } header { padding: 46px 0 12px; } }
-
   section { padding: 60px 0; }
-
-  /* 图文交替功能区 */
   .feature { display: grid; grid-template-columns: 1fr 1.18fr; gap: 50px; align-items: center; }
   .feature.reverse { grid-template-columns: 1.18fr 1fr; }
   .feature.reverse .feature-copy { order: 2; }
@@ -116,11 +71,7 @@
   .feature-list li { display: flex; gap: 11px; font-size: 14.5px; color: var(--fg); }
   .feature-list li::before { content: "→"; color: var(--cyan); font-family: var(--mono); flex-shrink: 0; }
   .feature-list b { color: var(--fg); font-weight: 600; }
-  @media (max-width: 880px) {
-    .feature, .feature.reverse { grid-template-columns: 1fr; gap: 26px; }
-    .feature.reverse .feature-copy { order: 0; }
-  }
-
+  @media (max-width: 880px) { .feature, .feature.reverse { grid-template-columns: 1fr; gap: 26px; } .feature.reverse .feature-copy { order: 0; } }
   .sec-head { max-width: 54ch; margin: 0 auto; text-align: center; }
   .sec-head h2 { font-size: clamp(26px, 3.4vw, 36px); letter-spacing: -0.02em; margin: 12px 0 0; text-wrap: balance; }
   .sec-head p { color: var(--dim); margin: 12px 0 0; }
@@ -132,12 +83,13 @@
   .card .ic { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: rgba(122, 162, 247, 0.1); border: 1px solid rgba(122, 162, 247, 0.18); font-family: var(--mono); font-size: 18px; color: var(--cyan); margin-bottom: 15px; }
   .card h3 { margin: 0 0 7px; font-size: 16.5px; letter-spacing: -0.01em; }
   .card p { margin: 0; color: var(--dim); font-size: 14px; line-height: 1.62; }
-
   .band { background: radial-gradient(700px 300px at 50% 120%, rgba(122, 90, 248, 0.2), transparent 70%), var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 54px 40px; text-align: center; }
   .band h2 { font-size: clamp(28px, 4vw, 40px); letter-spacing: -0.02em; margin: 0; text-wrap: balance; }
   .band p { color: var(--dim); margin: 14px auto 0; max-width: 48ch; }
   .band .cta-row { justify-content: center; }
   .platform { margin-top: 18px; font-family: var(--mono); font-size: 12px; color: var(--dim-2); }
+  .note { margin: 12px auto 0; max-width: 54ch; font-size: 12.5px; color: var(--dim-2); }
+  .note b { color: var(--dim); }
   footer { border-top: 1px solid var(--line); padding: 34px 0; margin-top: 20px; }
   .foot-in { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; color: var(--dim); font-size: 13px; }
   .foot-in .brand { color: var(--fg); }
@@ -152,29 +104,33 @@
     <span class="brand"><span class="mark"><img src="icon.png" alt="Brace"></span>Brace</span>
     <span class="nav-spacer"></span>
     <div class="nav-links">
-      <a href="#usage">Usage</a>
-      <a href="#features">Features</a>
-      <a href="docs.html">Docs</a>
+      <a href="#usage" data-i18n="nav.usage">Usage</a>
+      <a href="#features" data-i18n="nav.features">Features</a>
+      <a href="docs.html" data-i18n="nav.docs">Docs</a>
       <a href="https://github.com/Albert0x/Brace" target="_blank" rel="noopener">GitHub</a>
     </div>
-    <a class="nav-cta" href="https://github.com/Albert0x/Brace/releases/latest" target="_blank" rel="noopener">Download</a>
+    <div class="lang-toggle">
+      <button class="lang-btn" data-set="en" onclick="setLang('en')">EN</button>
+      <button class="lang-btn" data-set="zh" onclick="setLang('zh')">中</button>
+    </div>
+    <a class="nav-cta" href="https://github.com/Albert0x/Brace/releases/latest" target="_blank" rel="noopener" data-i18n="nav.download">Download</a>
   </div>
 </nav>
 
 <header>
   <div class="wrap hero">
     <div>
-      <span class="eyebrow">// a Windows terminal · Tauri + Rust</span>
-      <h1>The terminal that <span class="grad">watches your tokens.</span></h1>
-      <p class="lede">Brace shows your <b>Claude &amp; Codex</b> usage right in the status bar — context window, 5-hour and weekly limits, live with reset countdowns. Plus multi-shell tabs, a cwd-aware file tree, themes and wallpapers.</p>
+      <span class="eyebrow" data-i18n="hero.eyebrow">// a Windows terminal · Tauri + Rust</span>
+      <h1 data-i18n="hero.h1">The terminal that <span class="grad">watches your tokens.</span></h1>
+      <p class="lede" data-i18n="hero.lede">Brace shows your <b>Claude &amp; Codex</b> usage right in the status bar — context window, 5-hour and weekly limits, live with reset countdowns. Plus multi-shell tabs, a cwd-aware file tree, themes and wallpapers.</p>
       <div class="cta-row">
-        <a class="btn btn-primary" href="https://github.com/Albert0x/Brace/releases/latest" target="_blank" rel="noopener">↓ Download for Windows</a>
-        <a class="btn btn-ghost" href="https://github.com/Albert0x/Brace" target="_blank" rel="noopener">View source</a>
+        <a class="btn btn-primary" href="https://github.com/Albert0x/Brace/releases/latest" target="_blank" rel="noopener" data-i18n="hero.download">↓ Download for Windows</a>
+        <a class="btn btn-ghost" href="https://github.com/Albert0x/Brace" target="_blank" rel="noopener" data-i18n="hero.source">View source</a>
       </div>
       <div class="meta">
         <span><b>v0.1.2</b> · x64</span>
         <span>Windows 10 / 11</span>
-        <span>~3 MB · native</span>
+        <span data-i18n="hero.meta.size">~3 MB · native</span>
         <span>MIT</span>
       </div>
     </div>
@@ -182,73 +138,69 @@
   </div>
 </header>
 
-<!-- ── 王牌:用量感知 ── -->
 <section id="usage">
   <div class="wrap feature">
     <div class="feature-copy">
-      <span class="eyebrow">// nobody else puts this in the status bar</span>
-      <h2>See every token, before you hit the wall.</h2>
-      <p>Running Claude Code or Codex inside Brace? The status bar reads their usage and shows it live — no extra windows, no guessing when you'll get rate-limited.</p>
+      <span class="eyebrow" data-i18n="usage.eyebrow">// nobody else puts this in the status bar</span>
+      <h2 data-i18n="usage.h2">See every token, before you hit the wall.</h2>
+      <p data-i18n="usage.p">Running Claude Code or Codex inside Brace? The status bar reads their usage and shows it live — no extra windows, no guessing when you'll get rate-limited.</p>
       <ul class="feature-list">
-        <li><b>Context window</b> — how full the current session is</li>
-        <li><b>5-hour &amp; weekly limits</b> with reset countdowns</li>
-        <li><b>Claude &amp; Codex</b>, auto-detected per tab — no setup for Codex</li>
-        <li>Claude's numbers come from the <b>official</b> statusLine feed; Codex from its session logs</li>
+        <li data-i18n="usage.l1"><b>Context window</b> — how full the current session is</li>
+        <li data-i18n="usage.l2"><b>5-hour &amp; weekly limits</b> with reset countdowns</li>
+        <li data-i18n="usage.l3"><b>Claude &amp; Codex</b>, auto-detected per tab — no setup for Codex</li>
+        <li data-i18n="usage.l4">Claude's numbers come from the <b>official</b> statusLine feed; Codex from its session logs</li>
       </ul>
     </div>
     <div class="shot"><img src="pic/usage.png" alt="Brace status bar showing Claude context, 5-hour and weekly usage" loading="lazy"></div>
   </div>
 </section>
 
-<!-- ── 主题 + 壁纸 ── -->
 <section>
   <div class="wrap feature reverse">
     <div class="shot"><img src="pic/themes.png" alt="Brace theme picker with five built-in themes and wallpaper option" loading="lazy"></div>
     <div class="feature-copy">
-      <span class="eyebrow">// make it yours</span>
-      <h2>Five themes, any wallpaper.</h2>
-      <p>Pick from HyperDark, Tokyo Night, Dracula, Nord or Gruvbox — or drop in any image as a frosted-glass background with an adjustable overlay. System / Light / Dark all follow along.</p>
+      <span class="eyebrow" data-i18n="themes.eyebrow">// make it yours</span>
+      <h2 data-i18n="themes.h2">Five themes, any wallpaper.</h2>
+      <p data-i18n="themes.p">Pick from HyperDark, Tokyo Night, Dracula, Nord or Gruvbox — or drop in any image as a frosted-glass background with an adjustable overlay. System / Light / Dark all follow along.</p>
       <ul class="feature-list">
-        <li>Five hand-tuned themes, switchable instantly</li>
-        <li>Any image as a <b>frosted-glass wallpaper</b></li>
-        <li>English &amp; 中文 interface, one click to switch</li>
+        <li data-i18n="themes.l1">Five hand-tuned themes, switchable instantly</li>
+        <li data-i18n="themes.l2">Any image as a <b>frosted-glass wallpaper</b></li>
+        <li data-i18n="themes.l3">English &amp; 中文 interface, one click to switch</li>
       </ul>
     </div>
   </div>
 </section>
 
-<!-- ── 特性网格 ── -->
 <section id="features">
   <div class="wrap">
     <div class="sec-head">
-      <span class="eyebrow">// the essentials, done right</span>
-      <h2>A terminal you'll actually keep open.</h2>
-      <p>Everything a daily-driver terminal needs — and the small touches you didn't know you were missing.</p>
+      <span class="eyebrow" data-i18n="feat.eyebrow">// the essentials, done right</span>
+      <h2 data-i18n="feat.h2">A terminal you'll actually keep open.</h2>
+      <p data-i18n="feat.p">Everything a daily-driver terminal needs — and the small touches you didn't know you were missing.</p>
     </div>
     <div class="grid">
-      <div class="card"><div class="ic">⌗</div><h3>Multi-shell tabs</h3><p>PowerShell, CMD and Git Bash side by side. New tabs inherit your current directory automatically.</p></div>
-      <div class="card"><div class="ic">↹</div><h3>Two-way file tree</h3><p>The sidebar follows your terminal's <code>cd</code>; double-click a folder and the terminal cd's right back.</p></div>
-      <div class="card"><div class="ic">🔒</div><h3>Local &amp; private</h3><p>Usage is read straight from local files. No telemetry, no accounts — your data never leaves the machine.</p></div>
-      <div class="card"><div class="ic">⟳</div><h3>Auto-updates</h3><p>Signed one-click updates from GitHub Releases. Check, download, relaunch — done.</p></div>
-      <div class="card"><div class="ic">⚡</div><h3>Native &amp; light</h3><p>Tauri + Rust with a real ConPTY backend and WebGL rendering. ~3 MB installer, instant launch.</p></div>
-      <div class="card"><div class="ic">⌕</div><h3>Search &amp; links</h3><p>In-terminal search, clickable URLs, copy/paste with bracketed paste, and font zoom.</p></div>
+      <div class="card"><div class="ic">⌗</div><h3 data-i18n="feat.c1.h">Multi-shell tabs</h3><p data-i18n="feat.c1.p">PowerShell, CMD and Git Bash side by side. New tabs inherit your current directory automatically.</p></div>
+      <div class="card"><div class="ic">↹</div><h3 data-i18n="feat.c2.h">Two-way file tree</h3><p data-i18n="feat.c2.p">The sidebar follows your terminal's <code>cd</code>; double-click a folder and the terminal cd's right back.</p></div>
+      <div class="card"><div class="ic">🔒</div><h3 data-i18n="feat.c3.h">Local &amp; private</h3><p data-i18n="feat.c3.p">Usage is read straight from local files. No telemetry, no accounts — your data never leaves the machine.</p></div>
+      <div class="card"><div class="ic">⟳</div><h3 data-i18n="feat.c4.h">Auto-updates</h3><p data-i18n="feat.c4.p">Signed one-click updates from GitHub Releases. Check, download, relaunch — done.</p></div>
+      <div class="card"><div class="ic">⚡</div><h3 data-i18n="feat.c5.h">Native &amp; light</h3><p data-i18n="feat.c5.p">Tauri + Rust with a real ConPTY backend and WebGL rendering. ~3 MB installer, instant launch.</p></div>
+      <div class="card"><div class="ic">⌕</div><h3 data-i18n="feat.c6.h">Search &amp; links</h3><p data-i18n="feat.c6.p">In-terminal search, clickable URLs, copy/paste with bracketed paste, and font zoom.</p></div>
     </div>
   </div>
 </section>
 
-<!-- ── 下载 ── -->
 <section>
   <div class="wrap">
     <div class="band">
-      <span class="eyebrow">// get started</span>
-      <h2>Grab it and go.</h2>
-      <p>Download the installer, run it, and you're in. From there Brace updates itself.</p>
+      <span class="eyebrow" data-i18n="dl.eyebrow">// get started</span>
+      <h2 data-i18n="dl.h2">Grab it and go.</h2>
+      <p data-i18n="dl.p">Download the installer, run it, and you're in. From there Brace updates itself.</p>
       <div class="cta-row">
-        <a class="btn btn-primary" href="https://github.com/Albert0x/Brace/releases/latest" target="_blank" rel="noopener">↓ Download Brace</a>
-        <a class="btn btn-ghost" href="https://github.com/Albert0x/Brace/releases" target="_blank" rel="noopener">All releases</a>
+        <a class="btn btn-primary" href="https://github.com/Albert0x/Brace/releases/latest" target="_blank" rel="noopener" data-i18n="dl.download">↓ Download Brace</a>
+        <a class="btn btn-ghost" href="https://github.com/Albert0x/Brace/releases" target="_blank" rel="noopener" data-i18n="dl.all">All releases</a>
       </div>
       <div class="platform">Windows x64 · v0.1.2 · NSIS &amp; MSI installers</div>
-      <p style="margin: 12px auto 0; max-width: 54ch; font-size: 12.5px; color: var(--dim-2)">First launch: Windows may flag it as an "unrecognized app" (the installer isn't code-signed yet) — click <b style="color: var(--dim)">More info → Run anyway</b>.</p>
+      <p class="note" data-i18n="dl.note">First launch: Windows may flag it as an "unrecognized app" (the installer isn't code-signed yet) — click <b>More info → Run anyway</b>.</p>
     </div>
   </div>
 </section>
@@ -258,14 +210,98 @@
     <span class="brand"><span class="mark"><img src="icon.png" alt="Brace"></span>Brace</span>
     <span class="sp"></span>
     <div class="foot-links">
+      <a href="docs.html" data-i18n="nav.docs">Docs</a>
       <a href="https://github.com/Albert0x/Brace" target="_blank" rel="noopener">GitHub</a>
-      <a href="https://github.com/Albert0x/Brace/releases" target="_blank" rel="noopener">Releases</a>
-      <a href="https://github.com/Albert0x/Brace/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/Albert0x/Brace/releases" target="_blank" rel="noopener" data-i18n="foot.releases">Releases</a>
     </div>
   </div>
-  <div class="wrap" style="margin-top:14px;color:var(--dim-2);font-family:var(--mono);font-size:12px">
+  <div class="wrap" style="margin-top:14px;color:var(--dim-2);font-family:var(--mono);font-size:12px" data-i18n="foot.copy">
     Built with Tauri, React &amp; Rust · MIT License · © 2026
   </div>
 </footer>
+
+<script>
+  var I18N = {
+    en: {
+      "nav.usage": "Usage", "nav.features": "Features", "nav.docs": "Docs", "nav.download": "Download",
+      "hero.eyebrow": "// a Windows terminal · Tauri + Rust",
+      "hero.h1": "The terminal that <span class=\"grad\">watches your tokens.</span>",
+      "hero.lede": "Brace shows your <b>Claude &amp; Codex</b> usage right in the status bar — context window, 5-hour and weekly limits, live with reset countdowns. Plus multi-shell tabs, a cwd-aware file tree, themes and wallpapers.",
+      "hero.download": "↓ Download for Windows", "hero.source": "View source", "hero.meta.size": "~3 MB · native",
+      "usage.eyebrow": "// nobody else puts this in the status bar",
+      "usage.h2": "See every token, before you hit the wall.",
+      "usage.p": "Running Claude Code or Codex inside Brace? The status bar reads their usage and shows it live — no extra windows, no guessing when you'll get rate-limited.",
+      "usage.l1": "<b>Context window</b> — how full the current session is",
+      "usage.l2": "<b>5-hour &amp; weekly limits</b> with reset countdowns",
+      "usage.l3": "<b>Claude &amp; Codex</b>, auto-detected per tab — no setup for Codex",
+      "usage.l4": "Claude's numbers come from the <b>official</b> statusLine feed; Codex from its session logs",
+      "themes.eyebrow": "// make it yours", "themes.h2": "Five themes, any wallpaper.",
+      "themes.p": "Pick from HyperDark, Tokyo Night, Dracula, Nord or Gruvbox — or drop in any image as a frosted-glass background with an adjustable overlay. System / Light / Dark all follow along.",
+      "themes.l1": "Five hand-tuned themes, switchable instantly",
+      "themes.l2": "Any image as a <b>frosted-glass wallpaper</b>",
+      "themes.l3": "English &amp; 中文 interface, one click to switch",
+      "feat.eyebrow": "// the essentials, done right", "feat.h2": "A terminal you'll actually keep open.",
+      "feat.p": "Everything a daily-driver terminal needs — and the small touches you didn't know you were missing.",
+      "feat.c1.h": "Multi-shell tabs", "feat.c1.p": "PowerShell, CMD and Git Bash side by side. New tabs inherit your current directory automatically.",
+      "feat.c2.h": "Two-way file tree", "feat.c2.p": "The sidebar follows your terminal's <code>cd</code>; double-click a folder and the terminal cd's right back.",
+      "feat.c3.h": "Local &amp; private", "feat.c3.p": "Usage is read straight from local files. No telemetry, no accounts — your data never leaves the machine.",
+      "feat.c4.h": "Auto-updates", "feat.c4.p": "Signed one-click updates from GitHub Releases. Check, download, relaunch — done.",
+      "feat.c5.h": "Native &amp; light", "feat.c5.p": "Tauri + Rust with a real ConPTY backend and WebGL rendering. ~3 MB installer, instant launch.",
+      "feat.c6.h": "Search &amp; links", "feat.c6.p": "In-terminal search, clickable URLs, copy/paste with bracketed paste, and font zoom.",
+      "dl.eyebrow": "// get started", "dl.h2": "Grab it and go.",
+      "dl.p": "Download the installer, run it, and you're in. From there Brace updates itself.",
+      "dl.download": "↓ Download Brace", "dl.all": "All releases",
+      "dl.note": "First launch: Windows may flag it as an \"unrecognized app\" (the installer isn't code-signed yet) — click <b>More info → Run anyway</b>.",
+      "foot.releases": "Releases", "foot.copy": "Built with Tauri, React &amp; Rust · MIT License · © 2026"
+    },
+    zh: {
+      "nav.usage": "用量", "nav.features": "特性", "nav.docs": "文档", "nav.download": "下载",
+      "hero.eyebrow": "// Windows 终端 · Tauri + Rust",
+      "hero.h1": "看得见 <span class=\"grad\">token 的终端。</span>",
+      "hero.lede": "Brace 把 <b>Claude 和 Codex</b> 的用量直接显示在状态栏——上下文窗口、5 小时和周额度,实时带重置倒计时。外加多 Shell 标签、跟随 cd 的文件树、主题与壁纸。",
+      "hero.download": "↓ 下载 Windows 版", "hero.source": "查看源码", "hero.meta.size": "~3 MB · 原生",
+      "usage.eyebrow": "// 别家状态栏里没有的东西",
+      "usage.h2": "每个 token 都看得见,别再撞墙。",
+      "usage.p": "在 Brace 里跑 Claude Code 或 Codex?状态栏会读取它们的用量并实时显示——不用另开窗口,不用猜什么时候会被限流。",
+      "usage.l1": "<b>上下文窗口</b>——当前会话占用了多少",
+      "usage.l2": "<b>5 小时 & 周额度</b>,带重置倒计时",
+      "usage.l3": "<b>Claude & Codex</b> 按标签自动识别——Codex 零配置",
+      "usage.l4": "Claude 的数据来自<b>官方</b> statusLine 通道,Codex 来自会话日志",
+      "themes.eyebrow": "// 打造你自己的", "themes.h2": "五款主题,任意壁纸。",
+      "themes.p": "从 HyperDark、Tokyo Night、Dracula、Nord、Gruvbox 里选——或把任意图片设成毛玻璃背景,遮罩浓度可调。跟随系统 / 浅色 / 深色都支持。",
+      "themes.l1": "五款精调主题,即时切换",
+      "themes.l2": "任意图片设为<b>毛玻璃壁纸</b>",
+      "themes.l3": "中英文界面,一键切换",
+      "feat.eyebrow": "// 基本功,做扎实", "feat.h2": "一个你会一直开着的终端。",
+      "feat.p": "日常终端该有的都有——还有些你没想到但用了就离不开的小细节。",
+      "feat.c1.h": "多 Shell 标签", "feat.c1.p": "PowerShell、CMD、Git Bash 并排。新标签自动继承当前目录。",
+      "feat.c2.h": "双向文件树", "feat.c2.p": "侧栏跟随终端的 <code>cd</code>;双击文件夹,终端也 cd 过去。",
+      "feat.c3.h": "本地 & 私密", "feat.c3.p": "用量直接读本地文件。无遥测、无账号——你的数据不出这台机器。",
+      "feat.c4.h": "自动更新", "feat.c4.p": "从 GitHub Releases 签名一键更新。检查、下载、重启,搞定。",
+      "feat.c5.h": "原生 & 轻量", "feat.c5.p": "Tauri + Rust,真 ConPTY 后端 + WebGL 渲染。~3 MB 安装包,秒开。",
+      "feat.c6.h": "搜索 & 链接", "feat.c6.p": "终端内搜索、可点链接、带 bracketed paste 的复制粘贴、字体缩放。",
+      "dl.eyebrow": "// 开始使用", "dl.h2": "下载即用。",
+      "dl.p": "下载安装包,运行,就进来了。之后 Brace 会自己更新。",
+      "dl.download": "↓ 下载 Brace", "dl.all": "全部版本",
+      "dl.note": "首次安装:Windows 可能提示「无法识别的应用」(安装包尚未代码签名)——点 <b>更多信息 → 仍要运行</b>。",
+      "foot.releases": "版本", "foot.copy": "由 Tauri、React 和 Rust 构建 · MIT 许可证 · © 2026"
+    }
+  };
+  function setLang(l) {
+    var dict = I18N[l] || I18N.en;
+    document.querySelectorAll("[data-i18n]").forEach(function (el) {
+      var v = dict[el.getAttribute("data-i18n")];
+      if (v != null) el.innerHTML = v;
+    });
+    document.querySelectorAll(".lang-btn").forEach(function (b) {
+      b.classList.toggle("active", b.getAttribute("data-set") === l);
+    });
+    document.documentElement.lang = l === "zh" ? "zh-CN" : "en";
+    try { localStorage.setItem("brace-lang", l); } catch (e) {}
+  }
+  var saved = null;
+  try { saved = localStorage.getItem("brace-lang"); } catch (e) {}
+  setLang(saved || (navigator.language && navigator.language.indexOf("zh") === 0 ? "zh" : "en"));
+</script>
 </body>
 </html>

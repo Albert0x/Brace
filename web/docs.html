@@ -273,10 +273,10 @@
       b.classList.toggle('active', b.getAttribute('data-set') === l);
     });
     document.documentElement.lang = l === 'zh' ? 'zh-CN' : 'en';
-    try { localStorage.setItem('brace-docs-lang', l); } catch (e) {}
+    try { localStorage.setItem('brace-lang', l); } catch (e) {}
   }
   var saved = null;
-  try { saved = localStorage.getItem('brace-docs-lang'); } catch (e) {}
+  try { saved = localStorage.getItem('brace-lang'); } catch (e) {}
   setLang(saved || (navigator.language && navigator.language.indexOf('zh') === 0 ? 'zh' : 'en'));
 </script>
 </body>
