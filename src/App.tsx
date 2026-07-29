@@ -24,14 +24,15 @@ interface Tab {
 }
 
 interface UsageStats {
+  agent: string; // "claude" / "codex" / ""
   model: string;
   contextPct: number;
   fiveHourPct: number;
   fiveHourResetMs: number;
   sevenDayPct: number;
   sevenDayResetMs: number;
+  codexTotalTokens: number;
   cacheAgeSec: number;
-  runningClaude: boolean;
   hasRateLimits: boolean;
   hasData: boolean;
 }
@@ -45,6 +46,13 @@ function fmtCountdown(resetMs: number): string {
   if (h >= 24) return `${Math.floor(h / 24)}d ${h % 24}h`;
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;
+}
+
+// 1234567 → "1.2M"；45678 → "46K"
+function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+  if (n >= 1_000) return Math.round(n / 1_000) + "K";
+  return String(n);
 }
 
 // 单条用量计：标签 + 进度条 + % + 可选重置倒计时
@@ -483,11 +491,11 @@ function App() {
           <div className="status-left">
             <span>◧ Files</span>
             <span>⑂ main</span>
-            {usage && usage.runningClaude && usage.hasData && (
+            {usage && usage.agent && usage.hasData && (
               <div className="usage">
                 {usage.model && <span className="usage-model">{usage.model}</span>}
                 <UsageMeter label={t("usage.context")} pct={usage.contextPct} />
-                {usage.hasRateLimits && (
+                {usage.agent === "claude" && usage.hasRateLimits && (
                   <>
                     <UsageMeter
                       label={t("usage.win5h")}
@@ -500,6 +508,9 @@ function App() {
                       reset={usage.sevenDayResetMs}
                     />
                   </>
+                )}
+                {usage.agent === "codex" && usage.codexTotalTokens > 0 && (
+                  <span className="usage-win">{fmtTokens(usage.codexTotalTokens)} tok</span>
                 )}
               </div>
             )}

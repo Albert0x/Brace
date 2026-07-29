@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use chrono::{DateTime, Utc};
@@ -298,20 +298,21 @@ fn detect_shells() -> Vec<ShellInfo> {
 #[derive(Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct UsageStats {
+    agent: String,           // 当前标签在跑什么："claude" / "codex" / ""（空=没跑）
     model: String,
-    context_pct: f64,        // 官方上下文占用 %
-    five_hour_pct: f64,      // 官方 5h 额度用量 %
-    five_hour_reset_ms: i64, // 5h 重置时间（epoch ms，0=无）
-    seven_day_pct: f64,      // 官方 7d 额度用量 %
-    seven_day_reset_ms: i64, // 7d 重置时间（epoch ms，0=无）
-    cache_age_sec: i64,      // 缓存数据距今秒数
-    running_claude: bool,    // 当前标签终端是否真在跑 claude
-    has_rate_limits: bool,   // 缓存里有没有 5h/7d 额度（发过消息后才有）
-    has_data: bool,          // 缓存文件是否存在可读
+    context_pct: f64,        // 上下文占用 %（claude 和 codex 都有）
+    five_hour_pct: f64,      // claude：官方 5h 额度用量 %
+    five_hour_reset_ms: i64, // claude：5h 重置时间（epoch ms，0=无）
+    seven_day_pct: f64,      // claude：官方 7d 额度用量 %
+    seven_day_reset_ms: i64, // claude：7d 重置时间（epoch ms，0=无）
+    codex_total_tokens: u64, // codex：会话累计 token
+    cache_age_sec: i64,      // claude：缓存数据距今秒数
+    has_rate_limits: bool,   // claude：缓存里有没有 5h/7d 额度
+    has_data: bool,          // 数据是否读到
 }
 
-// 判断给定 shell pid 的后代进程里是否有 claude 在跑
-fn claude_running_under(root: u32) -> bool {
+// 判断给定 shell pid 的后代进程里在跑哪个 agent → "claude" / "codex" / ""
+fn detect_agent(root: u32) -> String {
     use sysinfo::{Pid, ProcessesToUpdate, System};
     let mut sys = System::new();
     sys.refresh_processes(ProcessesToUpdate::All, true);
@@ -330,9 +331,12 @@ fn claude_running_under(root: u32) -> bool {
                 .map(|s| s.to_string_lossy().to_lowercase())
                 .collect::<Vec<_>>()
                 .join(" ");
-            // node 跑 claude-code 时进程名是 node，命令行里含 claude
+            // node 跑 claude-code、或 codex 二进制/子进程，靠进程名或命令行关键字识别
             if name.contains("claude") || cmd.contains("claude") {
-                return true;
+                return "claude".into();
+            }
+            if name.contains("codex") || cmd.contains("codex") {
+                return "codex".into();
             }
         }
         for (cpid, cproc) in procs {
@@ -341,7 +345,7 @@ fn claude_running_under(root: u32) -> bool {
             }
         }
     }
-    false
+    String::new()
 }
 
 // 读 statusLine 采集脚本写的缓存
@@ -367,49 +371,116 @@ fn reset_to_ms(v: &serde_json::Value) -> i64 {
     0
 }
 
+// 递归收集目录下所有 jsonl
+fn collect_jsonl(dir: &Path, out: &mut Vec<PathBuf>) {
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                collect_jsonl(&p, out);
+            } else if p.extension().map_or(false, |x| x == "jsonl") {
+                out.push(p);
+            }
+        }
+    }
+}
+
+// 读 codex 最新会话的用量 → (上下文占用%, 会话累计 token)
+// 数据源：~/.codex/sessions（及 archived_sessions）下的 rollout-*.jsonl，
+// 取最后一条 token_count 事件：last_token_usage.input_tokens / model_context_window 为上下文占用。
+// codex 的 rate_limits 字段本地通常为 null，故不取 5h/周额度。
+fn read_codex_usage() -> Option<(f64, u64)> {
+    let base = std::env::var("CODEX_HOME").map(PathBuf::from).unwrap_or_else(|_| {
+        let home = std::env::var("USERPROFILE")
+            .or_else(|_| std::env::var("HOME"))
+            .unwrap_or_default();
+        PathBuf::from(home).join(".codex")
+    });
+    let mut files = Vec::new();
+    for sub in ["sessions", "archived_sessions"] {
+        collect_jsonl(&base.join(sub), &mut files);
+    }
+    // 文件路径含 ISO 时间戳（sessions/2026/07/22/rollout-2026-07-22T...），字典序最大 = 最新
+    let file = files.into_iter().max()?;
+
+    let content = std::fs::read_to_string(&file).ok()?;
+    let mut result: Option<(f64, u64)> = None;
+    for line in content.lines() {
+        if !line.contains("token_count") {
+            continue;
+        }
+        let v: serde_json::Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let payload = &v["payload"];
+        if payload["type"] != "token_count" {
+            continue;
+        }
+        let info = &payload["info"];
+        let window = info["model_context_window"].as_f64().unwrap_or(0.0);
+        let last_input = info["last_token_usage"]["input_tokens"].as_f64().unwrap_or(0.0);
+        let ctx = if window > 0.0 {
+            (last_input / window * 100.0).min(100.0)
+        } else {
+            0.0
+        };
+        let total = info["total_token_usage"]["total_tokens"].as_u64().unwrap_or(0);
+        result = Some((ctx, total)); // 保留最后一条
+    }
+    result
+}
+
 // 前端每隔十几秒轮询一次；传当前活跃标签的 session_id 做进程检测
 #[tauri::command]
 fn usage_stats(manager: State<'_, PtyManager>, session_id: String) -> UsageStats {
     let mut stats = UsageStats::default();
 
-    // 当前标签真在跑 claude 才显示；否则前端隐藏整条
+    // 当前标签在跑什么 agent；都没跑就返回空，前端隐藏整条
     let shell_pid = manager
         .sessions
         .lock()
         .ok()
         .and_then(|s| s.get(&session_id).and_then(|x| x.pid));
-    stats.running_claude = shell_pid.map_or(false, claude_running_under);
-    if !stats.running_claude {
-        return stats;
-    }
+    stats.agent = shell_pid.map(detect_agent).unwrap_or_default();
 
-    let cache = match read_statusline_cache() {
-        Some(c) => c,
-        None => return stats,
-    };
-    stats.has_data = true;
-
-    if let Some(m) = cache["model"]["display_name"]
-        .as_str()
-        .or_else(|| cache["model"]["id"].as_str())
-    {
-        stats.model = m.to_string();
-    }
-    stats.context_pct = cache["context_window"]["used_percentage"]
-        .as_f64()
-        .unwrap_or(0.0);
-
-    let rl = &cache["rate_limits"];
-    if rl.is_object() {
-        stats.has_rate_limits = true;
-        stats.five_hour_pct = rl["five_hour"]["used_percentage"].as_f64().unwrap_or(0.0);
-        stats.five_hour_reset_ms = reset_to_ms(&rl["five_hour"]["resets_at"]);
-        stats.seven_day_pct = rl["seven_day"]["used_percentage"].as_f64().unwrap_or(0.0);
-        stats.seven_day_reset_ms = reset_to_ms(&rl["seven_day"]["resets_at"]);
-    }
-
-    if let Some(u) = cache["updated_at"].as_f64() {
-        stats.cache_age_sec = (Utc::now().timestamp() as f64 - u) as i64;
+    match stats.agent.as_str() {
+        "claude" => {
+            let cache = match read_statusline_cache() {
+                Some(c) => c,
+                None => return stats,
+            };
+            stats.has_data = true;
+            if let Some(m) = cache["model"]["display_name"]
+                .as_str()
+                .or_else(|| cache["model"]["id"].as_str())
+            {
+                stats.model = m.to_string();
+            }
+            stats.context_pct = cache["context_window"]["used_percentage"]
+                .as_f64()
+                .unwrap_or(0.0);
+            let rl = &cache["rate_limits"];
+            if rl.is_object() {
+                stats.has_rate_limits = true;
+                stats.five_hour_pct = rl["five_hour"]["used_percentage"].as_f64().unwrap_or(0.0);
+                stats.five_hour_reset_ms = reset_to_ms(&rl["five_hour"]["resets_at"]);
+                stats.seven_day_pct = rl["seven_day"]["used_percentage"].as_f64().unwrap_or(0.0);
+                stats.seven_day_reset_ms = reset_to_ms(&rl["seven_day"]["resets_at"]);
+            }
+            if let Some(u) = cache["updated_at"].as_f64() {
+                stats.cache_age_sec = (Utc::now().timestamp() as f64 - u) as i64;
+            }
+        }
+        "codex" => {
+            if let Some((ctx, total)) = read_codex_usage() {
+                stats.has_data = true;
+                stats.model = "Codex".into();
+                stats.context_pct = ctx;
+                stats.codex_total_tokens = total;
+            }
+        }
+        _ => {}
     }
 
     stats
