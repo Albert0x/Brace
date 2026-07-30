@@ -3,7 +3,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import type { SearchAddon } from "@xterm/addon-search";
 import TerminalView from "./components/TerminalView";
-import FileTree from "./components/FileTree";
+import FileTree, { type GitStatus } from "./components/FileTree";
+import PreviewPanel from "./components/PreviewPanel";
 import SettingsPanel from "./components/SettingsPanel";
 import { THEMES, LIGHT_THEME, applyTheme, type Theme } from "./themes";
 import { LangContext, createT, type Lang } from "./i18n";
@@ -94,7 +95,12 @@ function App() {
   const t = useMemo(() => createT(lang), [lang]);
 
   const [tabs, setTabs] = useState<Tab[]>(() => [
-    { id: crypto.randomUUID(), initialCwd: "", shellPath: "", shellType: "powershell" },
+    {
+      id: crypto.randomUUID(),
+      initialCwd: localStorage.getItem("brace-last-cwd") || "",
+      shellPath: "",
+      shellType: "powershell",
+    },
   ]);
   const [activeId, setActiveId] = useState<string>(() => tabs[0].id);
 
@@ -213,6 +219,26 @@ function App() {
     setCwdMap((m) => (m[sid] === path ? m : { ...m, [sid]: path }));
   }, []);
   const activeCwd = cwdMap[activeId] ?? homeCwd;
+  // 记住当前目录，下次启动终端直接定位到这里（而不是每次跑回 C 盘）
+  useEffect(() => {
+    if (activeCwd) localStorage.setItem("brace-last-cwd", activeCwd);
+  }, [activeCwd]);
+
+  // Git 装饰：按当前目录拉 git status（分支 + 文件状态），随目录变化 + 每 8s 刷新
+  const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const poll = () =>
+      invoke<GitStatus>("git_status", { cwd: activeCwd })
+        .then((g) => alive && setGitStatus(g.isRepo ? g : null))
+        .catch(() => {});
+    poll();
+    const id = setInterval(poll, 8000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [activeCwd]);
 
   // Claude 用量：按当前标签轮询后端（含进程检测 + 读官方缓存），每 10s 一次
   const [usage, setUsage] = useState<UsageStats | null>(null);
@@ -256,6 +282,20 @@ function App() {
 
   const openDirInTerminal = (path: string) => {
     invoke("pty_write", { id: activeId, data: `cd '${path}'\r` }).catch(console.error);
+  };
+
+  // 文件预览：单击文件在侧边打开；右键「在终端显示」用当前 shell 打印内容
+  const [preview, setPreview] = useState<{ path: string; name: string } | null>(null);
+  const openFile = (path: string, name: string) => setPreview({ path, name });
+  const showInTerminal = (path: string) => {
+    const st = tabs.find((x) => x.id === activeId)?.shellType ?? "powershell";
+    const cmd =
+      st === "cmd"
+        ? `type "${path}"`
+        : st === "bash"
+          ? `cat "${path}"`
+          : `Get-Content "${path}"`;
+    invoke("pty_write", { id: activeId, data: cmd + "\r" }).catch(console.error);
   };
 
   // 搜索
@@ -478,7 +518,15 @@ function App() {
 
         <div className="body">
           <aside className="sidebar">
-            <FileTree rootPath={activeCwd} onOpenDir={openDirInTerminal} showHidden={showHidden} />
+            <FileTree
+              rootPath={activeCwd}
+              onOpenDir={openDirInTerminal}
+              onOpenFile={openFile}
+              onShowInTerminal={showInTerminal}
+              showHidden={showHidden}
+              gitStatus={gitDeco ? gitStatus : null}
+              gitDeco={gitDeco}
+            />
           </aside>
 
           <main className="main">
@@ -500,13 +548,25 @@ function App() {
               />
             ))}
             {tabs.length === 0 && <div className="empty-hint">{t("main.empty")}</div>}
+            {preview && (
+              <PreviewPanel
+                path={preview.path}
+                name={preview.name}
+                onClose={() => setPreview(null)}
+              />
+            )}
           </main>
         </div>
 
         <footer className="statusbar">
           <div className="status-left">
             <span>◧ Files</span>
-            <span>⑂ main</span>
+            <span>
+              ⑂ {gitStatus?.branch || "—"}
+              {gitStatus && gitStatus.changedCount > 0
+                ? ` ±${gitStatus.changedCount}`
+                : ""}
+            </span>
             {usage && usage.agent && usage.hasData && (
               <div className="usage">
                 {usage.model && <span className="usage-model">{usage.model}</span>}

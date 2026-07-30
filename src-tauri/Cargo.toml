@@ -35,4 +35,6 @@ chrono = "0.4"
 sysinfo = "0.33"
 # 读注册表判断 Windows 版本（Win10 的 acrylic 有黑边，需区分 Win10/11）
 winreg = "0.10"
+# 文件预览：图片转 base64 data URI
+base64 = "0.22"
 

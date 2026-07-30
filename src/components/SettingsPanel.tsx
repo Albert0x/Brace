@@ -405,8 +405,35 @@ export default function SettingsPanel(props: Props) {
                             t("update.found", { v: update.version }) +
                             (update.body ? "\n\n" + update.body : ""),
                           onConfirm: async () => {
-                            await update.downloadAndInstall();
-                            await relaunch();
+                            let total = 0;
+                            let done = 0;
+                            setUpdateStatus({
+                              type: "info",
+                              message: t("update.downloading", { p: 0 }),
+                            });
+                            try {
+                              await update.downloadAndInstall((e) => {
+                                if (e.event === "Started")
+                                  total = e.data.contentLength ?? 0;
+                                else if (e.event === "Progress") {
+                                  done += e.data.chunkLength;
+                                  const p =
+                                    total > 0
+                                      ? Math.round((done / total) * 100)
+                                      : 0;
+                                  setUpdateStatus({
+                                    type: "info",
+                                    message: t("update.downloading", { p }),
+                                  });
+                                }
+                              });
+                              await relaunch();
+                            } catch (err) {
+                              setUpdateStatus({
+                                type: "info",
+                                message: t("update.failed", { e: String(err) }),
+                              });
+                            }
                           },
                         });
                       } else {
