@@ -389,6 +389,37 @@ body,
   background: var(--ht-accent);
   color: var(--ht-base);
 }
+/* 引导式默认开提示 */
+.usage-prompt {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ht-accent);
+}
+.usage-prompt-btn {
+  font-size: 11px;
+  padding: 1px 9px;
+  border-radius: 5px;
+  border: 1px solid var(--ht-accent);
+  background: transparent;
+  color: var(--ht-accent);
+  cursor: pointer;
+}
+.usage-prompt-btn:hover {
+  background: var(--ht-accent);
+  color: var(--ht-base);
+}
+.usage-prompt-x {
+  background: transparent;
+  border: 0;
+  color: var(--ht-dim);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 2px;
+}
+.usage-prompt-x:hover {
+  color: var(--ht-fg);
+}
 
 .empty-hint {
   display: flex;

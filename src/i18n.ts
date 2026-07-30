@@ -19,6 +19,9 @@ export const MESSAGES: Record<Lang, Record<string, string>> = {
     "usage.context": "Context",
     "usage.win5h": "5h",
     "usage.win7d": "7d",
+    "usage.prompt": "Claude detected — show usage?",
+    "usage.promptEnable": "Enable",
+    "usage.promptDismiss": "Dismiss",
     "usage.title": "Agent Usage",
     "usage.enable": "Show Claude usage in status bar",
     "usage.enableDesc":
@@ -102,6 +105,9 @@ export const MESSAGES: Record<Lang, Record<string, string>> = {
     "usage.context": "上下文",
     "usage.win5h": "5h 用量",
     "usage.win7d": "7d 用量",
+    "usage.prompt": "检测到 Claude — 开启用量?",
+    "usage.promptEnable": "开启",
+    "usage.promptDismiss": "忽略",
     "usage.title": "AI 用量",
     "usage.enable": "在状态栏显示 Claude 用量",
     "usage.enableDesc":

@@ -230,6 +230,22 @@ function App() {
     };
   }, [activeId]);
 
+  // 引导式默认开：检测到跑 claude 但用量没开时，状态栏提示一次；忽略后记住不再提示
+  const [usagePromptOff, setUsagePromptOff] = useState(
+    () => localStorage.getItem("brace-usage-prompt") === "off",
+  );
+  const enableUsage = () => {
+    invoke("configure_statusline", { enable: true, force: false })
+      .then(() =>
+        invoke<UsageStats>("usage_stats", { sessionId: activeId }).then(setUsage),
+      )
+      .catch(() => {});
+  };
+  const dismissUsagePrompt = () => {
+    setUsagePromptOff(true);
+    localStorage.setItem("brace-usage-prompt", "off");
+  };
+
   const tabLabel = (tab: Tab) => {
     const cwd = cwdMap[tab.id];
     const b = cwd ? cwd.split(/[\\/]/).filter(Boolean).pop() : "";
@@ -514,6 +530,24 @@ function App() {
                 )}
               </div>
             )}
+            {usage &&
+              usage.agent === "claude" &&
+              !usage.hasData &&
+              !usagePromptOff && (
+                <div className="usage-prompt">
+                  <span>⚡ {t("usage.prompt")}</span>
+                  <button className="usage-prompt-btn" onClick={enableUsage}>
+                    {t("usage.promptEnable")}
+                  </button>
+                  <button
+                    className="usage-prompt-x"
+                    onClick={dismissUsagePrompt}
+                    title={t("usage.promptDismiss")}
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
           </div>
           <div className="status-right">
             <span>{fontSize}px</span>
