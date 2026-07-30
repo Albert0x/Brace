@@ -202,6 +202,163 @@ fn home_dir() -> String {
         .unwrap_or_else(|_| "C:\\".to_string())
 }
 
+// ---------- Git 装饰 ----------
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct GitStatus {
+    is_repo: bool,
+    branch: String,
+    changed_count: u32,
+    files: HashMap<String, String>, // 绝对路径(\分隔) → M/A/?/D/R/!(ignored)
+}
+
+// 在 cwd 下跑 git，静默（不弹控制台窗口）
+fn run_git(cwd: &str, args: &[&str]) -> Option<String> {
+    let mut cmd = std::process::Command::new("git");
+    cmd.arg("-C").arg(cwd).args(args);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let out = cmd.output().ok()?;
+    if out.status.success() {
+        Some(String::from_utf8_lossy(&out.stdout).to_string())
+    } else {
+        None
+    }
+}
+
+// porcelain 两位状态码 XY → 单字符归类（优先级：删除 > 重命名 > 新增 > 改动）
+fn classify(xy: &str) -> &'static str {
+    if xy == "??" {
+        return "?";
+    }
+    if xy == "!!" {
+        return "!";
+    }
+    if xy.contains('D') {
+        return "D";
+    }
+    if xy.contains('R') {
+        return "R";
+    }
+    if xy.contains('A') {
+        return "A";
+    }
+    "M"
+}
+
+#[tauri::command]
+fn git_status(cwd: String) -> GitStatus {
+    let mut st = GitStatus::default();
+    if cwd.trim().is_empty() {
+        return st;
+    }
+    // 取当前分支，顺带验证是否 git 仓库；不是就直接返回空
+    match run_git(&cwd, &["rev-parse", "--abbrev-ref", "HEAD"]) {
+        Some(b) => {
+            st.is_repo = true;
+            st.branch = b.trim().to_string();
+        }
+        None => return st,
+    }
+    let top = run_git(&cwd, &["rev-parse", "--show-toplevel"])
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    if let Some(out) = run_git(&cwd, &["status", "--porcelain", "--ignored"]) {
+        for line in out.lines() {
+            if line.len() < 4 {
+                continue;
+            }
+            let xy = &line[0..2];
+            let mut path = &line[3..];
+            // 重命名 "old -> new" 取 new
+            if let Some(idx) = path.find(" -> ") {
+                path = &path[idx + 4..];
+            }
+            let path = path.trim_matches('"').trim_end_matches('/');
+            // git 返回相对 toplevel、/ 分隔；转成绝对 + \ 分隔，跟 list_dir 一致
+            let abs = format!("{}/{}", top.trim_end_matches('/'), path).replace('/', "\\");
+            let code = classify(xy);
+            if code != "!" {
+                st.changed_count += 1;
+            }
+            st.files.insert(abs, code.to_string());
+        }
+    }
+    st
+}
+
+// ---------- 文件预览 ----------
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FilePreview {
+    kind: String,    // text | image | binary | toolarge
+    content: String, // text: 文本内容；image: data URI；其他: 空
+    size: u64,
+}
+
+#[tauri::command]
+fn read_file(path: String) -> FilePreview {
+    let empty = |kind: &str, size: u64| FilePreview {
+        kind: kind.into(),
+        content: String::new(),
+        size,
+    };
+    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    let ext = std::path::Path::new(&path)
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+
+    let is_img = matches!(
+        ext.as_str(),
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "ico" | "svg"
+    );
+    if is_img {
+        if size > 5_000_000 {
+            return empty("toolarge", size);
+        }
+        if let Ok(bytes) = std::fs::read(&path) {
+            use base64::Engine;
+            let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+            let mime: String = match ext.as_str() {
+                "svg" => "image/svg+xml".into(),
+                "jpg" | "jpeg" => "image/jpeg".into(),
+                "ico" => "image/x-icon".into(),
+                e => format!("image/{}", e),
+            };
+            return FilePreview {
+                kind: "image".into(),
+                content: format!("data:{};base64,{}", mime, b64),
+                size,
+            };
+        }
+        return empty("binary", size);
+    }
+
+    // 文本：超过 2MB 不预览；能按 UTF-8 读出来就当文本，否则二进制
+    if size > 2_000_000 {
+        return empty("toolarge", size);
+    }
+    match std::fs::read_to_string(&path) {
+        Ok(text) => FilePreview {
+            kind: "text".into(),
+            content: text,
+            size,
+        },
+        Err(_) => empty("binary", size),
+    }
+}
+
+#[tauri::command]
+fn write_file(path: String, content: String) -> Result<(), String> {
+    std::fs::write(&path, content).map_err(|e| e.to_string())
+}
+
 // ---------- Shell 检测 ----------
 
 #[derive(Serialize)]
@@ -546,7 +703,7 @@ fn statusline_status(app: AppHandle) -> StatuslineStatus {
 }
 
 #[tauri::command]
-fn configure_statusline(app: AppHandle, enable: bool) -> Result<(), String> {
+fn configure_statusline(app: AppHandle, enable: bool, force: bool) -> Result<(), String> {
     let sp = settings_path().ok_or("找不到 settings.json 路径")?;
     let mut root: serde_json::Value = std::fs::read_to_string(&sp)
         .ok()
@@ -558,10 +715,12 @@ fn configure_statusline(app: AppHandle, enable: bool) -> Result<(), String> {
 
     if enable {
         let script = statusline_script_path(&app).ok_or("找不到采集脚本（打包资源缺失）")?;
-        // 被别的 statusLine 占用则拒绝覆盖
-        if let Some(cmd) = root["statusLine"]["command"].as_str() {
-            if !cmd.is_empty() && !cmd.contains("statusline-writer") {
-                return Err(format!("已存在其他 statusLine，未覆盖：{}", cmd));
+        // 被别的 statusLine 占用：force=false 拒绝并提示，force=true 强制接管覆盖
+        if !force {
+            if let Some(cmd) = root["statusLine"]["command"].as_str() {
+                if !cmd.is_empty() && !cmd.contains("statusline-writer") {
+                    return Err(format!("已存在其他 statusLine，未覆盖：{}", cmd));
+                }
             }
         }
         let script_str = script.display().to_string();
@@ -642,7 +801,10 @@ pub fn run() {
             detect_shells,
             usage_stats,
             statusline_status,
-            configure_statusline
+            configure_statusline,
+            git_status,
+            read_file,
+            write_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
