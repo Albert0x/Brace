@@ -375,6 +375,20 @@ body,
   color: var(--ht-dim);
   font-variant-numeric: tabular-nums;
 }
+.sl-takeover {
+  margin-left: 8px;
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--ht-accent);
+  background: transparent;
+  color: var(--ht-accent);
+  cursor: pointer;
+}
+.sl-takeover:hover {
+  background: var(--ht-accent);
+  color: var(--ht-base);
+}
 
 .empty-hint {
   display: flex;

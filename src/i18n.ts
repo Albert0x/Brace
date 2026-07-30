@@ -26,6 +26,9 @@ export const MESSAGES: Record<Lang, Record<string, string>> = {
     "usage.noNode": "node not found — the collector script can't run.",
     "usage.occupied":
       "Another statusLine is already configured; not overwritten: {cmd}",
+    "usage.takeover": "Force takeover",
+    "usage.takeoverConfirm":
+      "This replaces the existing statusLine — its status bar will stop working. Continue?",
     // 侧栏 / 文件树
     "sidebar.refresh": "Refresh",
     "tree.enterDir": "Double-click to enter: {path}",
@@ -105,6 +108,8 @@ export const MESSAGES: Record<Lang, Record<string, string>> = {
       "挂一个 statusLine 采集脚本到 Claude Code 接收官方用量数据（会改 ~/.claude/settings.json）。Codex 自动识别，无需配置。",
     "usage.noNode": "未检测到 node，采集脚本无法运行。",
     "usage.occupied": "已存在其他 statusLine，未覆盖：{cmd}",
+    "usage.takeover": "强制接管",
+    "usage.takeoverConfirm": "这会替换已有的 statusLine（它的状态栏会失效）。继续？",
     "sidebar.refresh": "刷新",
     "tree.enterDir": "双击进入：{path}",
     "ctx.copy": "复制",

@@ -546,7 +546,7 @@ fn statusline_status(app: AppHandle) -> StatuslineStatus {
 }
 
 #[tauri::command]
-fn configure_statusline(app: AppHandle, enable: bool) -> Result<(), String> {
+fn configure_statusline(app: AppHandle, enable: bool, force: bool) -> Result<(), String> {
     let sp = settings_path().ok_or("找不到 settings.json 路径")?;
     let mut root: serde_json::Value = std::fs::read_to_string(&sp)
         .ok()
@@ -558,10 +558,12 @@ fn configure_statusline(app: AppHandle, enable: bool) -> Result<(), String> {
 
     if enable {
         let script = statusline_script_path(&app).ok_or("找不到采集脚本（打包资源缺失）")?;
-        // 被别的 statusLine 占用则拒绝覆盖
-        if let Some(cmd) = root["statusLine"]["command"].as_str() {
-            if !cmd.is_empty() && !cmd.contains("statusline-writer") {
-                return Err(format!("已存在其他 statusLine，未覆盖：{}", cmd));
+        // 被别的 statusLine 占用：force=false 拒绝并提示，force=true 强制接管覆盖
+        if !force {
+            if let Some(cmd) = root["statusLine"]["command"].as_str() {
+                if !cmd.is_empty() && !cmd.contains("statusline-writer") {
+                    return Err(format!("已存在其他 statusLine，未覆盖：{}", cmd));
+                }
             }
         }
         let script_str = script.display().to_string();

@@ -93,11 +93,11 @@ export default function SettingsPanel(props: Props) {
         .then(setSlStatus)
         .catch(() => {});
   }, [props.open]);
-  const toggleStatusline = async (on: boolean) => {
+  const toggleStatusline = async (on: boolean, force = false) => {
     setSlBusy(true);
     setSlError("");
     try {
-      await invoke("configure_statusline", { enable: on });
+      await invoke("configure_statusline", { enable: on, force });
     } catch (e) {
       setSlError(String(e));
     }
@@ -261,6 +261,18 @@ export default function SettingsPanel(props: Props) {
               {slStatus?.occupiedByOther && (
                 <p className="settings-hint">
                   {t("usage.occupied", { cmd: slStatus.otherCommand })}
+                  <button
+                    className="sl-takeover"
+                    onClick={() =>
+                      setUpdateStatus({
+                        type: "confirm",
+                        message: t("usage.takeoverConfirm"),
+                        onConfirm: () => toggleStatusline(true, true),
+                      })
+                    }
+                  >
+                    {t("usage.takeover")}
+                  </button>
                 </p>
               )}
               {slError && (
