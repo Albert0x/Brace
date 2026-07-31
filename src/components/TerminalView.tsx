@@ -148,21 +148,24 @@ export default function TerminalView({
       return false;
     });
 
-    invoke("pty_create", {
-      id: sessionId,
-      rows: term.rows,
-      cols: term.cols,
-      cwd: initialCwd,
-      shellPath,
-      shellType,
-    }).catch(console.error);
+    // 必须等监听器真正注册完再建 PTY，否则 shell 启动瞬间的输出可能在监听器就位前就已发出而丢失
+    const unlistenPromise = listen<{ id: string; data: string }>("pty-output", (e) => {
+      if (e.payload.id === sessionId) term.write(e.payload.data);
+    });
+    unlistenPromise.then(() => {
+      if (disposed) return;
+      invoke("pty_create", {
+        id: sessionId,
+        rows: term.rows,
+        cols: term.cols,
+        cwd: initialCwd,
+        shellPath,
+        shellType,
+      }).catch(console.error);
+    });
 
     term.onData((data) => {
       invoke("pty_write", { id: sessionId, data }).catch(console.error);
-    });
-
-    const unlisten = listen<{ id: string; data: string }>("pty-output", (e) => {
-      if (e.payload.id === sessionId) term.write(e.payload.data);
     });
 
     const syncSize = () => {
@@ -178,7 +181,7 @@ export default function TerminalView({
     return () => {
       disposed = true;
       window.removeEventListener("resize", syncSize);
-      unlisten.then((f) => f());
+      unlistenPromise.then((f) => f());
       onUnregisterSearch(sessionId);
       invoke("pty_close", { id: sessionId }).catch(() => {});
       term.dispose();

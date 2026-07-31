@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -7,7 +8,6 @@ import { THEMES, type Theme } from "../themes";
 import { useLang, LANGS, type Lang } from "../i18n";
 
 const REPO_URL = "https://github.com/Albert0x/Brace";
-const APP_VERSION = "0.1.3";
 
 interface StatuslineStatus {
   configured: boolean;
@@ -84,6 +84,11 @@ export default function SettingsPanel(props: Props) {
     onConfirm?: () => void;
   } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // 运行时读真实版本号，不写死；非 Tauri 环境（浏览器 dev 预览）下 invoke 会失败，留空即可
+  const [appVersion, setAppVersion] = useState("");
+  useEffect(() => {
+    getVersion().then(setAppVersion).catch(() => {});
+  }, []);
   const [slStatus, setSlStatus] = useState<StatuslineStatus | null>(null);
   const [slBusy, setSlBusy] = useState(false);
   const [slError, setSlError] = useState("");
@@ -361,14 +366,14 @@ export default function SettingsPanel(props: Props) {
                 <div>
                   <div className="about-name">Brace</div>
                   <div className="about-tagline">{t("about.tagline")}</div>
-                  <div className="about-ver">v{APP_VERSION}</div>
+                  <div className="about-ver">v{appVersion}</div>
                 </div>
               </div>
 
               <div className="about-rows">
                 <div className="about-row">
                   <span>{t("about.build")}</span>
-                  <span>Windows · x86_64 · v{APP_VERSION}</span>
+                  <span>Windows · x86_64 · v{appVersion}</span>
                 </div>
                 <div className="about-row">
                   <span>{t("about.bundleId")}</span>
@@ -397,7 +402,12 @@ export default function SettingsPanel(props: Props) {
                     if (checking) return;
                     setChecking(true);
                     try {
-                      const update = await check();
+                      // updater 的 reqwest 不认 Windows 系统代理，国内开 clash 系统代理
+                    // 会连不上 github——先读系统代理传给 check()，让检查更新能走代理
+                    const proxy = await invoke<string | null>(
+                      "system_proxy",
+                    ).catch(() => null);
+                    const update = await check(proxy ? { proxy } : undefined);
                       if (update) {
                         setUpdateStatus({
                           type: "confirm",
@@ -439,7 +449,7 @@ export default function SettingsPanel(props: Props) {
                       } else {
                         setUpdateStatus({
                           type: "info",
-                          message: t("update.latest", { v: APP_VERSION }),
+                          message: t("update.latest", { v: appVersion }),
                         });
                       }
                     } catch (e) {
