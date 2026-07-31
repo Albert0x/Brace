@@ -8,8 +8,8 @@ Brace 是一款基于 Tauri、React、TypeScript、Rust 和 xterm.js
 选择、跟随工作目录的文件树、终端搜索、主题和自定义背景。
 
 > [!IMPORTANT]
-> Windows 是当前已经实现的平台。项目可以在 macOS 上编译，但 macOS
-> 的 Shell 检测、工作目录上报、快捷键和原生窗口行为仍未完成。
+> Windows 是当前已发布的平台。macOS 已支持 zsh/bash、工作目录同步、
+> Command 快捷键和原生风格窗口；正式下载包仍需通过 Developer ID 签名与 Apple 公证。
 
 ## 功能
 
@@ -99,15 +99,15 @@ src-tauri/
 
 | 能力 | Windows | macOS |
 | --- | --- | --- |
-| 构建 | 支持 | 可以编译 |
-| Shell 检测 | PowerShell、CMD、Git Bash | 未实现 |
-| 默认终端启动 | 支持 | 未实现 |
-| 工作目录同步 | PowerShell | 未实现 |
-| 原生快捷键 | 基于 Ctrl | Command 映射未实现 |
-| 原生窗口样式 | Acrylic | 未实现 |
+| 构建 | 支持 | `.app` / `.dmg` 本地构建通过 |
+| Shell 检测 | PowerShell、CMD、Git Bash | zsh、bash、Fish |
+| 默认终端启动 | 支持 | 使用 `$SHELL`，回退 zsh |
+| 工作目录同步 | PowerShell | zsh、bash |
+| 原生快捷键 | 基于 Ctrl | 基于 Command，保留终端 Ctrl 语义 |
+| 原生窗口样式 | Acrylic | macOS 交通灯与半透明材质 |
 
-macOS 维护者不应复制 Windows 专用逻辑。Shell 选择、命令引用、快捷键、状态文本
-和窗口行为必须通过明确的平台边界实现。
+macOS 与 Windows 的 Shell 选择、命令引用、快捷键、状态文本和窗口行为通过明确的
+平台边界实现。正式发布 macOS 构建前仍必须完成 Developer ID 签名、公证和 Gatekeeper 验证。
 
 ## 常见问题
 

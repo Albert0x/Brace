@@ -20,6 +20,7 @@ interface Props {
   webgl: boolean;
   shellPath: string;
   shellType: string;
+  isMac: boolean;
   onRegisterSearch: (id: string, addon: SearchAddon) => void;
   onUnregisterSearch: (id: string) => void;
 }
@@ -36,9 +37,11 @@ export default function TerminalView({
   webgl,
   shellPath,
   shellType,
+  isMac,
   onRegisterSearch,
   onUnregisterSearch,
 }: Props) {
+  const usesCommandKey = isMac || /Mac/.test(navigator.platform);
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -125,6 +128,17 @@ export default function TerminalView({
 
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
+      if (usesCommandKey && e.metaKey && e.code === "KeyC") {
+        const selection = term.getSelection();
+        if (selection) {
+          navigator.clipboard.writeText(selection).catch(() => {});
+        }
+        return false;
+      }
+      if (usesCommandKey && e.metaKey && e.code === "KeyV") {
+        paste();
+        return false;
+      }
       if (e.ctrlKey && e.shiftKey && e.code === "KeyC") {
         const sel = term.getSelection();
         if (sel) {
@@ -234,11 +248,11 @@ export default function TerminalView({
         >
           <div className="ctx-item" onClick={() => { copySelection(); setMenu(null); }}>
             <span>{t("ctx.copy")}</span>
-            <span className="ctx-key">Ctrl+Shift+C</span>
+            <span className="ctx-key">{usesCommandKey ? "⌘C" : "Ctrl+Shift+C"}</span>
           </div>
           <div className="ctx-item" onClick={() => { paste(); setMenu(null); }}>
             <span>{t("ctx.paste")}</span>
-            <span className="ctx-key">Ctrl+Shift+V</span>
+            <span className="ctx-key">{usesCommandKey ? "⌘V" : "Ctrl+Shift+V"}</span>
           </div>
           <div className="ctx-sep" />
           <div className="ctx-item" onClick={() => { termRef.current?.selectAll(); setMenu(null); }}>

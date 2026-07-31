@@ -9,6 +9,13 @@ import SettingsPanel from "./components/SettingsPanel";
 import { THEMES, LIGHT_THEME, applyTheme, type Theme } from "./themes";
 import { LangContext, createT, type Lang } from "./i18n";
 import "./App.css";
+import {
+  changeDirectoryCommand,
+  isMacPlatform,
+  platformLabel,
+  showFileCommand,
+  type PlatformInfo,
+} from "./platform";
 
 interface ShellInfo {
   id: string;
@@ -84,6 +91,17 @@ function UsageMeter({
 
 function App() {
   const appWindow = getCurrentWindow();
+  const browserIsMac = /Mac/.test(navigator.platform);
+  const [platform, setPlatform] = useState<PlatformInfo>({
+    os: browserIsMac ? "macos" : "windows",
+    arch: "unknown",
+  });
+  const isMac = isMacPlatform(platform);
+  const shortcutText = (value: string) => (isMac ? value.split("Ctrl").join("⌘") : value);
+
+  useEffect(() => {
+    invoke<PlatformInfo>("platform_info").then(setPlatform).catch(console.error);
+  }, []);
 
   // 语言（默认英文）
   const [lang, setLang] = useState<Lang>(
@@ -99,7 +117,7 @@ function App() {
       id: crypto.randomUUID(),
       initialCwd: localStorage.getItem("brace-last-cwd") || "",
       shellPath: "",
-      shellType: "powershell",
+      shellType: /Mac/.test(navigator.platform) ? "default" : "powershell",
     },
   ]);
   const [activeId, setActiveId] = useState<string>(() => tabs[0].id);
@@ -109,7 +127,9 @@ function App() {
   useEffect(() => {
     invoke<ShellInfo[]>("detect_shells").then(setShells).catch(() => {});
   }, []);
-  const defaultShell = shells.find((s) => s.id === "powershell") ?? shells[0];
+  const defaultShell =
+    (isMac ? shells.find((s) => s.id === "default") : shells.find((s) => s.id === "powershell")) ??
+    shells[0];
 
   // 主题
   const [theme, setTheme] = useState<Theme>(
@@ -281,7 +301,11 @@ function App() {
   };
 
   const openDirInTerminal = (path: string) => {
-    invoke("pty_write", { id: activeId, data: `cd '${path}'\r` }).catch(console.error);
+    const shellType = tabs.find((tab) => tab.id === activeId)?.shellType ?? "default";
+    invoke("pty_write", {
+      id: activeId,
+      data: changeDirectoryCommand(shellType, path) + "\r",
+    }).catch(console.error);
   };
 
   // 文件预览：单击文件在侧边打开；右键「在终端显示」用当前 shell 打印内容
@@ -289,12 +313,7 @@ function App() {
   const openFile = (path: string, name: string) => setPreview({ path, name });
   const showInTerminal = (path: string) => {
     const st = tabs.find((x) => x.id === activeId)?.shellType ?? "powershell";
-    const cmd =
-      st === "cmd"
-        ? `type "${path}"`
-        : st === "bash"
-          ? `cat "${path}"`
-          : `Get-Content "${path}"`;
+    const cmd = showFileCommand(st, path);
     invoke("pty_write", { id: activeId, data: cmd + "\r" }).catch(console.error);
   };
 
@@ -364,7 +383,8 @@ function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!e.ctrlKey) return;
+      const appModifier = isMac ? e.metaKey : e.ctrlKey;
+      if (!appModifier) return;
       if (!e.shiftKey && e.code === "KeyT") {
         e.preventDefault();
         e.stopPropagation();
@@ -398,7 +418,7 @@ function App() {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [activeId, cwdMap, homeCwd, shells]);
+  }, [activeId, cwdMap, homeCwd, isMac, shells]);
 
   return (
     <LangContext.Provider value={{ lang, setLang, t }}>
@@ -411,8 +431,15 @@ function App() {
         style={{ background: effectiveTheme.ui.base, opacity: bgImage ? overlay : 0.9 }}
       />
 
-      <div className="app">
+      <div className={`app ${isMac ? "platform-macos" : "platform-windows"}`}>
         <header className="topbar" data-tauri-drag-region>
+          {isMac && (
+            <div className="mac-traffic-lights" aria-label="Window controls">
+              <button className="traffic-light close" title={t("win.close")} onClick={() => appWindow.close()} />
+              <button className="traffic-light minimize" title={t("win.minimize")} onClick={() => appWindow.minimize()} />
+              <button className="traffic-light zoom" title={t("win.maximize")} onClick={() => appWindow.toggleMaximize()} />
+            </div>
+          )}
           <div className="tabs">
             {tabs.map((tab) => (
               <div
@@ -427,7 +454,7 @@ function App() {
                 {tabs.length > 1 && (
                   <span
                     className="tab-close"
-                    title={t("tab.close")}
+                    title={shortcutText(t("tab.close"))}
                     onClick={(e) => closeTab(tab.id, e)}
                   >
                     ×
@@ -437,7 +464,7 @@ function App() {
             ))}
 
             <div className="tab-add-group">
-              <button className="tab-add" title={t("tab.new")} onClick={() => addTab()}>
+              <button className="tab-add" title={shortcutText(t("tab.new"))} onClick={() => addTab()}>
                 ＋
               </button>
               {shells.length > 1 && (
@@ -478,7 +505,7 @@ function App() {
               <input
                 ref={searchInputRef}
                 value={searchQuery}
-                placeholder={t("search.placeholder")}
+                placeholder={shortcutText(t("search.placeholder"))}
                 onChange={(e) => {
                   setSearchQuery(e.target.value);
                   runSearch(e.target.value, 1);
@@ -496,7 +523,7 @@ function App() {
             >
               ⚙
             </button>
-            <div className="win-controls">
+            {!isMac && <div className="win-controls">
               <button className="win-btn" title={t("win.minimize")} onClick={() => appWindow.minimize()}>
                 <svg width="10" height="10" viewBox="0 0 10 10">
                   <rect y="4.5" width="10" height="1" fill="currentColor" />
@@ -512,7 +539,7 @@ function App() {
                   <path d="M1 1 L9 9 M9 1 L1 9" stroke="currentColor" strokeWidth="1.2" />
                 </svg>
               </button>
-            </div>
+            </div>}
           </div>
         </header>
 
@@ -543,11 +570,12 @@ function App() {
                 webgl={webgl}
                 shellPath={tab.shellPath}
                 shellType={tab.shellType}
+                isMac={isMac}
                 onRegisterSearch={registerSearch}
                 onUnregisterSearch={unregisterSearch}
               />
             ))}
-            {tabs.length === 0 && <div className="empty-hint">{t("main.empty")}</div>}
+            {tabs.length === 0 && <div className="empty-hint">{shortcutText(t("main.empty"))}</div>}
             {preview && (
               <PreviewPanel
                 path={preview.path}
@@ -614,7 +642,7 @@ function App() {
             <span>{t("status.terminals", { n: tabs.length })}</span>
             <span>{theme.name}</span>
             <span>UTF-8</span>
-            <span>Win 11</span>
+            <span>{platformLabel(platform)}</span>
           </div>
         </footer>
       </div>
@@ -641,6 +669,7 @@ function App() {
         onWebgl={setWebgl}
         cursorBlink={cursorBlink}
         onCursorBlink={setCursorBlink}
+        platform={platform}
       />
     </LangContext.Provider>
   );

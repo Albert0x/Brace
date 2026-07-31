@@ -3,12 +3,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { getVersion } from "@tauri-apps/api/app";
 import { THEMES, type Theme } from "../themes";
 import { useLang, LANGS, type Lang } from "../i18n";
+import { platformLabel, type PlatformInfo } from "../platform";
 
 const REPO_URL = "https://github.com/Albert0x/Brace";
-const APP_VERSION = "0.1.3";
-
 interface StatuslineStatus {
   configured: boolean;
   occupiedByOther: boolean;
@@ -38,6 +38,7 @@ interface Props {
   onWebgl: (v: boolean) => void;
   cursorBlink: boolean;
   onCursorBlink: (v: boolean) => void;
+  platform: PlatformInfo;
 }
 
 function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
@@ -87,6 +88,10 @@ export default function SettingsPanel(props: Props) {
   const [slStatus, setSlStatus] = useState<StatuslineStatus | null>(null);
   const [slBusy, setSlBusy] = useState(false);
   const [slError, setSlError] = useState("");
+  const [appVersion, setAppVersion] = useState("—");
+  useEffect(() => {
+    getVersion().then(setAppVersion).catch(() => {});
+  }, []);
   useEffect(() => {
     if (props.open)
       invoke<StatuslineStatus>("statusline_status")
@@ -361,14 +366,14 @@ export default function SettingsPanel(props: Props) {
                 <div>
                   <div className="about-name">Brace</div>
                   <div className="about-tagline">{t("about.tagline")}</div>
-                  <div className="about-ver">v{APP_VERSION}</div>
+                  <div className="about-ver">v{appVersion}</div>
                 </div>
               </div>
 
               <div className="about-rows">
                 <div className="about-row">
                   <span>{t("about.build")}</span>
-                  <span>Windows · x86_64 · v{APP_VERSION}</span>
+                  <span>{platformLabel(props.platform)} · v{appVersion}</span>
                 </div>
                 <div className="about-row">
                   <span>{t("about.bundleId")}</span>
@@ -439,7 +444,7 @@ export default function SettingsPanel(props: Props) {
                       } else {
                         setUpdateStatus({
                           type: "info",
-                          message: t("update.latest", { v: APP_VERSION }),
+                          message: t("update.latest", { v: appVersion }),
                         });
                       }
                     } catch (e) {
