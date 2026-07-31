@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useT } from "../i18n";
 
@@ -187,12 +187,20 @@ export default function FileTree({
 }) {
   const t = useT();
   const [root, setRoot] = useState<FileEntry[]>([]);
+  // 快速切目录/手动刷新会并发发出多个 list_dir，用请求序号只认最后一个发出的那个，
+  // 避免慢的旧请求后返回，把新目录的结果覆盖掉
+  const requestId = useRef(0);
 
   const load = (path: string) => {
     if (!path) return;
+    const id = ++requestId.current;
     invoke<FileEntry[]>("list_dir", { path })
-      .then(setRoot)
-      .catch(() => setRoot([]));
+      .then((entries) => {
+        if (id === requestId.current) setRoot(entries);
+      })
+      .catch(() => {
+        if (id === requestId.current) setRoot([]);
+      });
   };
 
   useEffect(() => {

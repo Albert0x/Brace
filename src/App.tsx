@@ -5,6 +5,7 @@ import type { SearchAddon } from "@xterm/addon-search";
 import TerminalView from "./components/TerminalView";
 import FileTree, { type GitStatus } from "./components/FileTree";
 import PreviewPanel from "./components/PreviewPanel";
+import GitPanel from "./components/GitPanel";
 import SettingsPanel from "./components/SettingsPanel";
 import { THEMES, LIGHT_THEME, applyTheme, type Theme } from "./themes";
 import { LangContext, createT, type Lang } from "./i18n";
@@ -83,7 +84,10 @@ function UsageMeter({
 }
 
 function App() {
-  const appWindow = getCurrentWindow();
+  // 纯浏览器（README 里说的 pnpm dev frontend-only）没有 __TAURI_INTERNALS__，
+  // getCurrentWindow() 会直接抛错崩掉，得先判断环境
+  const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+  const appWindow = isTauri ? getCurrentWindow() : null;
 
   // 语言（默认英文）
   const [lang, setLang] = useState<Lang>(
@@ -108,6 +112,12 @@ function App() {
   const [shellMenu, setShellMenu] = useState(false);
   useEffect(() => {
     invoke<ShellInfo[]>("detect_shells").then(setShells).catch(() => {});
+  }, []);
+
+  // 状态栏显示的真实系统版本（别再假装每个人都是 Win11）
+  const [osVersion, setOsVersion] = useState("");
+  useEffect(() => {
+    invoke<string>("os_version").then(setOsVersion).catch(() => {});
   }, []);
   const defaultShell = shells.find((s) => s.id === "powershell") ?? shells[0];
 
@@ -224,7 +234,8 @@ function App() {
     if (activeCwd) localStorage.setItem("brace-last-cwd", activeCwd);
   }, [activeCwd]);
 
-  // Git 装饰：按当前目录拉 git status（分支 + 文件状态），随目录变化 + 每 8s 刷新
+  // Git 装饰：按当前目录拉 git status（分支 + 文件状态），随目录变化 + 定时刷新。
+  // --ignored 在大仓库较贵，间隔拉长到 20s；手动刷新走 FileTree 的 ⟳ 按钮
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
   useEffect(() => {
     let alive = true;
@@ -233,7 +244,7 @@ function App() {
         .then((g) => alive && setGitStatus(g.isRepo ? g : null))
         .catch(() => {});
     poll();
-    const id = setInterval(poll, 8000);
+    const id = setInterval(poll, 20000);
     return () => {
       alive = false;
       clearInterval(id);
@@ -280,21 +291,42 @@ function App() {
     return s?.name ?? "Terminal";
   };
 
+  // 把路径安全地嵌进对应 shell 的命令字符串：PS/bash 用字面量单引号转义，
+  // cmd 用双引号包裹（Windows 文件名本就不能含引号/尖括号/管道符，双引号足以挡住 & | < > 等元字符；
+  // 唯一挡不住的是 cmd 对 %VAR% 的展开——这是 cmd.exe 自身的固有限制，无法在字符串层面完全消除）
+  const psQuote = (path: string) => `'${path.replace(/'/g, "''")}'`;
+  const bashQuote = (path: string) => `'${path.replace(/'/g, "'\\''")}'`;
+  const cmdQuote = (path: string) => `"${path}"`;
+
   const openDirInTerminal = (path: string) => {
-    invoke("pty_write", { id: activeId, data: `cd '${path}'\r` }).catch(console.error);
+    const st = tabs.find((x) => x.id === activeId)?.shellType ?? "powershell";
+    const cmd =
+      st === "cmd"
+        ? `cd /d ${cmdQuote(path)}`
+        : st === "bash"
+          ? `cd ${bashQuote(path)}`
+          : `Set-Location -LiteralPath ${psQuote(path)}`;
+    invoke("pty_write", { id: activeId, data: cmd + "\r" }).catch(console.error);
   };
 
   // 文件预览：单击文件在侧边打开；右键「在终端显示」用当前 shell 打印内容
   const [preview, setPreview] = useState<{ path: string; name: string } | null>(null);
   const openFile = (path: string, name: string) => setPreview({ path, name });
+  // Git 提交面板：状态栏 ⑂ 徽标点开；提交后立刻刷新一次 git status
+  const [gitPanelOpen, setGitPanelOpen] = useState(false);
+  const refreshGit = useCallback(() => {
+    invoke<GitStatus>("git_status", { cwd: activeCwd })
+      .then((g) => setGitStatus(g.isRepo ? g : null))
+      .catch(() => {});
+  }, [activeCwd]);
   const showInTerminal = (path: string) => {
     const st = tabs.find((x) => x.id === activeId)?.shellType ?? "powershell";
     const cmd =
       st === "cmd"
-        ? `type "${path}"`
+        ? `type ${cmdQuote(path)}`
         : st === "bash"
-          ? `cat "${path}"`
-          : `Get-Content "${path}"`;
+          ? `cat ${bashQuote(path)}`
+          : `Get-Content -LiteralPath ${psQuote(path)}`;
     invoke("pty_write", { id: activeId, data: cmd + "\r" }).catch(console.error);
   };
 
@@ -331,14 +363,12 @@ function App() {
   };
 
   const removeTab = (id: string) => {
-    setTabs((prev) => {
-      const idx = prev.findIndex((x) => x.id === id);
-      const next = prev.filter((x) => x.id !== id);
-      if (id === activeId && next.length) {
-        setActiveId(next[Math.max(0, idx - 1)].id);
-      }
-      return next;
-    });
+    const idx = tabs.findIndex((x) => x.id === id);
+    const next = tabs.filter((x) => x.id !== id);
+    setTabs(next);
+    if (id === activeId && next.length) {
+      setActiveId(next[Math.max(0, idx - 1)].id);
+    }
   };
 
   const closeTab = (id: string, e: React.MouseEvent) => {
@@ -347,12 +377,9 @@ function App() {
   };
 
   const switchTab = (dir: number) => {
-    setTabs((prev) => {
-      if (prev.length < 2) return prev;
-      const idx = prev.findIndex((x) => x.id === activeId);
-      setActiveId(prev[(idx + dir + prev.length) % prev.length].id);
-      return prev;
-    });
+    if (tabs.length < 2) return;
+    const idx = tabs.findIndex((x) => x.id === activeId);
+    setActiveId(tabs[(idx + dir + tabs.length) % tabs.length].id);
   };
 
   useEffect(() => {
@@ -497,17 +524,17 @@ function App() {
               ⚙
             </button>
             <div className="win-controls">
-              <button className="win-btn" title={t("win.minimize")} onClick={() => appWindow.minimize()}>
+              <button className="win-btn" title={t("win.minimize")} onClick={() => appWindow?.minimize()}>
                 <svg width="10" height="10" viewBox="0 0 10 10">
                   <rect y="4.5" width="10" height="1" fill="currentColor" />
                 </svg>
               </button>
-              <button className="win-btn" title={t("win.maximize")} onClick={() => appWindow.toggleMaximize()}>
+              <button className="win-btn" title={t("win.maximize")} onClick={() => appWindow?.toggleMaximize()}>
                 <svg width="10" height="10" viewBox="0 0 10 10">
                   <rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" />
                 </svg>
               </button>
-              <button className="win-btn win-close" title={t("win.close")} onClick={() => appWindow.close()}>
+              <button className="win-btn win-close" title={t("win.close")} onClick={() => appWindow?.close()}>
                 <svg width="10" height="10" viewBox="0 0 10 10">
                   <path d="M1 1 L9 9 M9 1 L1 9" stroke="currentColor" strokeWidth="1.2" />
                 </svg>
@@ -561,7 +588,11 @@ function App() {
         <footer className="statusbar">
           <div className="status-left">
             <span>◧ Files</span>
-            <span>
+            <span
+              className={"status-git" + (gitStatus?.isRepo ? " clickable" : "")}
+              onClick={() => gitStatus?.isRepo && setGitPanelOpen(true)}
+              title={gitStatus?.isRepo ? t("git.title") : ""}
+            >
               ⑂ {gitStatus?.branch || "—"}
               {gitStatus && gitStatus.changedCount > 0
                 ? ` ±${gitStatus.changedCount}`
@@ -614,7 +645,7 @@ function App() {
             <span>{t("status.terminals", { n: tabs.length })}</span>
             <span>{theme.name}</span>
             <span>UTF-8</span>
-            <span>Win 11</span>
+            {osVersion && <span>{osVersion}</span>}
           </div>
         </footer>
       </div>
@@ -642,6 +673,15 @@ function App() {
         cursorBlink={cursorBlink}
         onCursorBlink={setCursorBlink}
       />
+
+      {gitPanelOpen && (
+        <GitPanel
+          cwd={activeCwd}
+          gitStatus={gitStatus}
+          onClose={() => setGitPanelOpen(false)}
+          onDone={refreshGit}
+        />
+      )}
     </LangContext.Provider>
   );
 }

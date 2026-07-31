@@ -1,19 +1,55 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
 
-use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
-// 单个终端会话：持有写入端与主控端
+// 单个终端会话：持有写入端、主控端与可 kill 的子进程句柄
 struct PtySession {
     writer: Box<dyn Write + Send>,
     master: Box<dyn MasterPty + Send>,
     pid: Option<u32>,
+    child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
+}
+
+// 流式 UTF-8 解码：把跨 read() 块被截断的多字节序列留到下一块，避免中文/emoji 花屏。
+// leftover 里最多滞留 3 个字节（UTF-8 最长 4 字节，末尾不完整序列 <=3 字节待续）。
+// 遇到真正非法字节（并非只是截断）时用替换字符跳过，不会无限攒积。
+fn decode_utf8_stream(leftover: &mut Vec<u8>, new_bytes: &[u8]) -> String {
+    leftover.extend_from_slice(new_bytes);
+    let mut out = String::new();
+    loop {
+        match std::str::from_utf8(leftover) {
+            Ok(s) => {
+                out.push_str(s);
+                leftover.clear();
+                break;
+            }
+            Err(e) => {
+                let valid_up_to = e.valid_up_to();
+                if valid_up_to > 0 {
+                    out.push_str(std::str::from_utf8(&leftover[..valid_up_to]).unwrap());
+                }
+                match e.error_len() {
+                    Some(bad_len) => {
+                        out.push('\u{FFFD}');
+                        leftover.drain(..valid_up_to + bad_len);
+                        // 继续处理剩余字节，可能还有合法内容或新的截断尾巴
+                    }
+                    None => {
+                        leftover.drain(..valid_up_to);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    out
 }
 
 #[derive(Default)]
@@ -72,9 +108,10 @@ fn pty_create(
     if !start_dir.is_empty() {
         cmd.cwd(start_dir);
     }
-    let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+    let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
     drop(pair.slave);
     let pid = child.process_id();
+    let child: Arc<Mutex<Box<dyn Child + Send + Sync>>> = Arc::new(Mutex::new(child));
 
     let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
     let mut writer = pair.master.take_writer().map_err(|e| e.to_string())?;
@@ -93,36 +130,40 @@ fn pty_create(
 
     let app_handle = app.clone();
     let sid = id.clone();
+    let child_for_wait = Arc::clone(&child);
     std::thread::spawn(move || {
         let mut buf = [0u8; 4096];
+        let mut leftover: Vec<u8> = Vec::new();
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
-                    let data = String::from_utf8_lossy(&buf[..n]).to_string();
-                    let _ = app_handle.emit(
-                        "pty-output",
-                        PtyOutput {
-                            id: sid.clone(),
-                            data,
-                        },
-                    );
+                    let data = decode_utf8_stream(&mut leftover, &buf[..n]);
+                    if !data.is_empty() {
+                        let _ = app_handle.emit(
+                            "pty-output",
+                            PtyOutput {
+                                id: sid.clone(),
+                                data,
+                            },
+                        );
+                    }
                 }
                 Err(_) => break,
             }
         }
+        // 读循环结束说明进程已退出（或即将退出），在这里回收，避免 kill() 和 wait() 抢锁死锁
+        if let Ok(mut c) = child_for_wait.lock() {
+            let _ = c.wait();
+        }
         let _ = app_handle.emit("pty-exit", sid.clone());
-    });
-
-    std::thread::spawn(move || {
-        let _ = child.wait();
     });
 
     manager
         .sessions
         .lock()
         .map_err(|e| e.to_string())?
-        .insert(id, PtySession { writer, master: pair.master, pid });
+        .insert(id, PtySession { writer, master: pair.master, pid, child });
     Ok(())
 }
 
@@ -159,11 +200,26 @@ fn pty_resize(
 
 #[tauri::command]
 fn pty_close(manager: State<'_, PtyManager>, id: String) -> Result<(), String> {
-    manager
+    let session = manager
         .sessions
         .lock()
         .map_err(|e| e.to_string())?
         .remove(&id);
+    if let Some(session) = session {
+        // shell 本身先 kill 一次兜底；Windows 下 shell 里跑起来的子进程（node/claude 等）
+        // 不会被这个 kill 连坐，必须再用 taskkill /T 杀掉整棵进程树
+        if let Ok(mut c) = session.child.lock() {
+            let _ = c.kill();
+        }
+        #[cfg(windows)]
+        if let Some(pid) = session.pid {
+            use std::os::windows::process::CommandExt;
+            let _ = std::process::Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+                .output();
+        }
+    }
     Ok(())
 }
 
@@ -213,9 +269,11 @@ struct GitStatus {
     files: HashMap<String, String>, // 绝对路径(\分隔) → M/A/?/D/R/!(ignored)
 }
 
-// 在 cwd 下跑 git，静默（不弹控制台窗口）
+// 在 cwd 下跑 git，静默（不弹控制台窗口）；core.quotepath=false 让中文/特殊字符路径
+// 原样输出，不被 octal 转义成 "\346\226\207..." 这种跟 list_dir 的路径对不上的形式
 fn run_git(cwd: &str, args: &[&str]) -> Option<String> {
     let mut cmd = std::process::Command::new("git");
+    cmd.arg("-c").arg("core.quotepath=false");
     cmd.arg("-C").arg(cwd).args(args);
     #[cfg(windows)]
     {
@@ -267,18 +325,19 @@ fn git_status(cwd: String) -> GitStatus {
     let top = run_git(&cwd, &["rev-parse", "--show-toplevel"])
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
-    if let Some(out) = run_git(&cwd, &["status", "--porcelain", "--ignored"]) {
-        for line in out.lines() {
-            if line.len() < 4 {
+    // -z：记录以 NUL 分隔，路径不加引号/不转义；重命名/拷贝记录是两个 NUL 分隔字段
+    // "XY newpath\0oldpath\0"，要多吃一个 token 跳过旧路径
+    if let Some(out) = run_git(&cwd, &["status", "--porcelain", "-z", "--ignored"]) {
+        let mut tokens = out.split('\0');
+        while let Some(rec) = tokens.next() {
+            if rec.len() < 4 {
                 continue;
             }
-            let xy = &line[0..2];
-            let mut path = &line[3..];
-            // 重命名 "old -> new" 取 new
-            if let Some(idx) = path.find(" -> ") {
-                path = &path[idx + 4..];
+            let xy = &rec[0..2];
+            let path = rec[3..].trim_end_matches('/');
+            if xy.contains('R') || xy.contains('C') {
+                tokens.next(); // 跳过旧路径
             }
-            let path = path.trim_matches('"').trim_end_matches('/');
             // git 返回相对 toplevel、/ 分隔；转成绝对 + \ 分隔，跟 list_dir 一致
             let abs = format!("{}/{}", top.trim_end_matches('/'), path).replace('/', "\\");
             let code = classify(xy);
@@ -289,6 +348,46 @@ fn git_status(cwd: String) -> GitStatus {
         }
     }
     st
+}
+
+// 跑 git 拿结果：Ok=stdout，Err=git 的 stderr（失败原因原样给前端，如未配 user.name、
+// push 被拒、无 upstream 等）。run_git 只返回 Option 丢了错误，提交场景必须拿到原因
+fn run_git_out(cwd: &str, args: &[&str]) -> Result<String, String> {
+    let mut cmd = std::process::Command::new("git");
+    cmd.arg("-c").arg("core.quotepath=false");
+    cmd.arg("-C").arg(cwd).args(args);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let out = cmd.output().map_err(|e| format!("无法运行 git：{}", e))?;
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).to_string())
+    } else {
+        let err = String::from_utf8_lossy(&out.stderr).to_string();
+        let so = String::from_utf8_lossy(&out.stdout).to_string();
+        Err(if err.trim().is_empty() { so } else { err })
+    }
+}
+
+// 轻量提交：add -A → commit → 可选 push。任一步失败就中止，把 git 报错原样抛回前端
+#[tauri::command]
+fn git_commit(cwd: String, message: String, push: bool) -> Result<String, String> {
+    if cwd.trim().is_empty() {
+        return Err("没有工作目录".into());
+    }
+    if message.trim().is_empty() {
+        return Err("提交信息不能为空".into());
+    }
+    run_git_out(&cwd, &["add", "-A"])?;
+    run_git_out(&cwd, &["commit", "-m", &message])?;
+    if push {
+        run_git_out(&cwd, &["push"])?;
+        Ok("pushed".into())
+    } else {
+        Ok("committed".into())
+    }
 }
 
 // ---------- 文件预览 ----------
@@ -471,11 +570,22 @@ struct UsageStats {
 // 判断给定 shell pid 的后代进程里在跑哪个 agent → "claude" / "codex" / ""
 fn detect_agent(root: u32) -> String {
     use sysinfo::{Pid, ProcessesToUpdate, System};
+    use std::collections::{HashMap, HashSet};
     let mut sys = System::new();
     sys.refresh_processes(ProcessesToUpdate::All, true);
     let procs = sys.processes();
+
+    // 一次扫描建 parent → children 映射；原来每弹出一个节点就把全表再扫一遍找子进程，
+    // 深度 D 时是 O(N*D)，进程一多就退化成 O(N²)
+    let mut children_of: HashMap<Pid, Vec<Pid>> = HashMap::new();
+    for (pid, proc_) in procs {
+        if let Some(parent) = proc_.parent() {
+            children_of.entry(parent).or_default().push(*pid);
+        }
+    }
+
     let mut stack = vec![Pid::from_u32(root)];
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = HashSet::new();
     while let Some(p) = stack.pop() {
         if !seen.insert(p) {
             continue;
@@ -496,10 +606,8 @@ fn detect_agent(root: u32) -> String {
                 return "codex".into();
             }
         }
-        for (cpid, cproc) in procs {
-            if cproc.parent() == Some(p) {
-                stack.push(*cpid);
-            }
+        if let Some(children) = children_of.get(&p) {
+            stack.extend(children);
         }
     }
     String::new()
@@ -705,12 +813,15 @@ fn statusline_status(app: AppHandle) -> StatuslineStatus {
 #[tauri::command]
 fn configure_statusline(app: AppHandle, enable: bool, force: bool) -> Result<(), String> {
     let sp = settings_path().ok_or("找不到 settings.json 路径")?;
-    let mut root: serde_json::Value = std::fs::read_to_string(&sp)
-        .ok()
-        .and_then(|c| serde_json::from_str(&c).ok())
-        .unwrap_or_else(|| serde_json::json!({}));
+    // 文件不存在视为全新配置；文件存在但解析失败，绝不能当 {} 处理再覆盖写回——
+    // 那样会把用户已有的其他配置项全部抹掉，必须直接报错中止
+    let mut root: serde_json::Value = match std::fs::read_to_string(&sp) {
+        Ok(content) => serde_json::from_str(&content)
+            .map_err(|e| format!("settings.json 解析失败，为避免覆盖已有配置已中止：{}", e))?,
+        Err(_) => serde_json::json!({}),
+    };
     if !root.is_object() {
-        root = serde_json::json!({});
+        return Err("settings.json 顶层不是对象，为避免破坏已有配置已中止".into());
     }
 
     if enable {
@@ -752,8 +863,14 @@ fn configure_statusline(app: AppHandle, enable: bool, force: bool) -> Result<(),
     if let Some(dir) = sp.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
+    // 写入前备份原文件；正文走临时文件 + rename，避免写到一半崩溃/断电导致 settings.json 损坏
+    if sp.exists() {
+        let _ = std::fs::copy(&sp, sp.with_extension("json.bak"));
+    }
     let text = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())?;
-    std::fs::write(&sp, text).map_err(|e| e.to_string())?;
+    let tmp = sp.with_extension("json.tmp");
+    std::fs::write(&tmp, text).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &sp).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -768,6 +885,64 @@ fn is_win11() -> bool {
         .and_then(|k| k.get_value::<String, _>("CurrentBuildNumber").ok())
         .and_then(|b| b.parse::<u32>().ok())
         .map_or(false, |n| n >= 22000)
+}
+
+// 状态栏显示用的真实系统信息，别再把 Win11 写死糊弄 Win10 用户
+#[tauri::command]
+fn os_version() -> String {
+    #[cfg(target_os = "windows")]
+    {
+        if is_win11() { "Win 11".into() } else { "Win 10".into() }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::env::consts::OS.into()
+    }
+}
+
+// 读 Windows 系统代理（HKCU\...\Internet Settings 的 ProxyEnable/ProxyServer）。
+// tauri updater 的 reqwest 只认 HTTP_PROXY 环境变量、不认系统代理——国内用户开 clash
+// 系统代理却收不到更新。把系统代理读出来喂给前端 check({ proxy })，一劳永逸。
+#[tauri::command]
+fn system_proxy() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        use winreg::enums::HKEY_CURRENT_USER;
+        use winreg::RegKey;
+        let key = RegKey::predef(HKEY_CURRENT_USER)
+            .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Internet Settings")
+            .ok()?;
+        let enable: u32 = key.get_value("ProxyEnable").ok()?;
+        if enable == 0 {
+            return None;
+        }
+        let server: String = key.get_value("ProxyServer").ok()?;
+        // ProxyServer 两种形态："host:port" 或 "http=host:port;https=host:port;..."
+        // 后者优先取 https=，其次 http=
+        let addr = if server.contains('=') {
+            let pick = |proto: &str| {
+                server.split(';').find_map(|part| {
+                    part.trim().strip_prefix(proto).map(|s| s.to_string())
+                })
+            };
+            pick("https=").or_else(|| pick("http=")).unwrap_or_default()
+        } else {
+            server.trim().to_string()
+        };
+        if addr.is_empty() {
+            return None;
+        }
+        // reqwest/updater 需要带 scheme 的完整 URL
+        if addr.starts_with("http://") || addr.starts_with("https://") {
+            Some(addr)
+        } else {
+            Some(format!("http://{}", addr))
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -803,8 +978,11 @@ pub fn run() {
             statusline_status,
             configure_statusline,
             git_status,
+            git_commit,
             read_file,
-            write_file
+            write_file,
+            os_version,
+            system_proxy
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

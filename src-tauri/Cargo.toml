@@ -1,8 +1,8 @@
 [package]
-name = "tauri-app"
-version = "0.1.4"
-description = "A Tauri App"
-authors = ["you"]
+name = "brace"
+version = "0.1.5"
+description = "Brace — a terminal with proxy/agent-aware config and git-aware file browsing"
+authors = ["Albert0x"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

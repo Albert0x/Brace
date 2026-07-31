@@ -305,6 +305,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "brace"
+version = "0.1.5"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "portable-pty",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-opener",
+ "tauri-plugin-process",
+ "tauri-plugin-updater",
+ "window-vibrancy 0.5.3",
+ "winreg 0.10.1",
+]
+
+[[package]]
 name = "brotli"
 version = "8.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3900,25 +3919,6 @@ dependencies = [
  "webview2-com",
  "window-vibrancy 0.6.0",
  "windows 0.61.3",
-]
-
-[[package]]
-name = "tauri-app"
-version = "0.1.4"
-dependencies = [
- "base64 0.22.1",
- "chrono",
- "portable-pty",
- "serde",
- "serde_json",
- "sysinfo",
- "tauri",
- "tauri-build",
- "tauri-plugin-opener",
- "tauri-plugin-process",
- "tauri-plugin-updater",
- "window-vibrancy 0.5.3",
- "winreg 0.10.1",
 ]
 
 [[package]]
