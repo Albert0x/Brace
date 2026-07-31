@@ -9,9 +9,9 @@ selection, a working-directory-aware file tree, terminal search, themes, and
 custom backgrounds in a lightweight native window.
 
 > [!IMPORTANT]
-> Windows is the currently implemented platform. The project compiles on
-> macOS, but macOS shell discovery, working-directory reporting, keyboard
-> shortcuts, and native window behavior are not complete yet.
+> Windows is the currently released platform. macOS now supports zsh/bash,
+> working-directory reporting, Command shortcuts, and native-style window
+> chrome. Public macOS downloads still require Developer ID signing and Apple notarization.
 
 ## Features
 
@@ -102,16 +102,16 @@ src-tauri/
 
 | Capability | Windows | macOS |
 | --- | --- | --- |
-| Build | Supported | Compiles |
-| Shell discovery | PowerShell, CMD, Git Bash | Not implemented |
-| Default terminal startup | Supported | Not implemented |
-| Working-directory sync | PowerShell | Not implemented |
-| Native shortcuts | Ctrl-based | Command mapping not implemented |
-| Native window styling | Acrylic | Not implemented |
+| Build | Supported | Local `.app` / `.dmg` build verified |
+| Shell discovery | PowerShell, CMD, Git Bash | zsh, bash, Fish |
+| Default terminal startup | Supported | Uses `$SHELL`, falls back to zsh |
+| Working-directory sync | PowerShell | zsh and bash |
+| Native shortcuts | Ctrl-based | Command-based, preserving terminal Ctrl semantics |
+| Native window styling | Acrylic | macOS traffic lights and translucent material |
 
-macOS contributors should not duplicate Windows-specific logic. Shell
-selection, quoting, shortcuts, status text, and window behavior must be
-implemented behind explicit platform-aware boundaries.
+macOS and Windows shell selection, quoting, shortcuts, status text, and window
+behavior are implemented behind explicit platform-aware boundaries. A public
+macOS release still requires Developer ID signing, notarization, and Gatekeeper verification.
 
 ## Troubleshooting
 

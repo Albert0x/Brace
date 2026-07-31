@@ -1,8 +1,8 @@
 [package]
 name = "tauri-app"
 version = "0.1.4"
-description = "A Tauri App"
-authors = ["you"]
+description = "A focused, native terminal workspace for Windows and macOS"
+authors = ["Brace contributors"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -33,8 +33,9 @@ tauri-plugin-process = "2"
 chrono = "0.4"
 # 进程检测：判断当前终端是否真在跑 claude
 sysinfo = "0.33"
-# 读注册表判断 Windows 版本（Win10 的 acrylic 有黑边，需区分 Win10/11）
-winreg = "0.10"
 # 文件预览：图片转 base64 data URI
 base64 = "0.22"
 
+[target.'cfg(windows)'.dependencies]
+# 读注册表判断 Windows 版本（Win10 的 acrylic 有黑边，需区分 Win10/11）
+winreg = "0.10"

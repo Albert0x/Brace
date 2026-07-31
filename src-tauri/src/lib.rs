@@ -29,14 +29,45 @@ struct PtyOutput {
 
 // 各 shell 注入自己的 prompt，用 OSC 9;9 上报 cwd（供文件树联动）。结尾只用 \r。
 // PowerShell 系：function prompt 里拼 OSC + 可见提示符
-const POWERSHELL_INJECT: &str = "function prompt { $p=(Get-Location).Path; $e=[char]27; \"$e]9;9;$p$e\\PS $p> \" }; clear\r";
+const POWERSHELL_INJECT: &str =
+    "function prompt { $p=(Get-Location).Path; $e=[char]27; \"$e]9;9;$p$e\\PS $p> \" }; clear\r";
 // CMD：PROMPT 里 $E=ESC、$P=当前路径、$G=>；先 cls 再设，避免回显那行注入命令
 const CMD_INJECT: &str = "cls & prompt $E]9;9;$P$E\\$P$G \r";
 // Git Bash：PROMPT_COMMAND 每次提示符前 printf 出 OSC 9;9；pwd -W 取 Windows 路径喂文件树
-const BASH_INJECT: &str =
+const GIT_BASH_INJECT: &str =
     "export PROMPT_COMMAND='printf \"\\033]9;9;%s\\033\\\\\" \"$(pwd -W 2>/dev/null || pwd)\"'\r";
+const ZSH_INJECT: &str =
+    "autoload -Uz add-zsh-hook; function _brace_precmd(){ printf '\\033]9;9;%s\\033\\\\' \"$PWD\"; }; add-zsh-hook precmd _brace_precmd; clear\r";
+const POSIX_BASH_INJECT: &str =
+    "_brace_prompt_command='printf \"\\033]9;9;%s\\033\\\\\" \"$PWD\"'; PROMPT_COMMAND=\"$_brace_prompt_command${PROMPT_COMMAND:+;$PROMPT_COMMAND}\"; clear\r";
 
-// 新建一个终端会话。shell_path 为空回退 powershell.exe；shell_type 决定是否注入 cwd 上报。
+fn default_shell_path() -> String {
+    #[cfg(target_os = "windows")]
+    {
+        return "powershell.exe".to_string();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::env::var("SHELL")
+            .ok()
+            .filter(|shell| Path::new(shell).is_file())
+            .unwrap_or_else(|| "/bin/zsh".to_string())
+    }
+}
+
+fn resolved_shell_type(requested: &str, executable: &str) -> String {
+    if !requested.is_empty() && requested != "default" {
+        return requested.to_string();
+    }
+    Path::new(executable)
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("unknown")
+        .trim_end_matches(".exe")
+        .to_lowercase()
+}
+
+// 新建终端会话。shell_path 为空时按平台选择默认 Shell；shell_type 决定 cwd 上报方式。
 #[tauri::command]
 fn pty_create(
     app: AppHandle,
@@ -59,15 +90,28 @@ fn pty_create(
         .map_err(|e| e.to_string())?;
 
     let exe = if shell_path.trim().is_empty() {
-        "powershell.exe".to_string()
+        default_shell_path()
     } else {
         shell_path
     };
+    let shell_type = resolved_shell_type(&shell_type, &exe);
     let mut cmd = CommandBuilder::new(&exe);
+    #[cfg(not(target_os = "windows"))]
+    match shell_type.as_str() {
+        "zsh" | "bash" => {
+            cmd.arg("-l");
+        }
+        "fish" => {
+            cmd.arg("--login");
+        }
+        _ => {}
+    }
     let start_dir = if !cwd.trim().is_empty() {
         cwd
     } else {
-        std::env::var("USERPROFILE").unwrap_or_default()
+        std::env::var("USERPROFILE")
+            .or_else(|_| std::env::var("HOME"))
+            .unwrap_or_default()
     };
     if !start_dir.is_empty() {
         cmd.cwd(start_dir);
@@ -83,7 +127,9 @@ fn pty_create(
     let inject = match shell_type.as_str() {
         "powershell" => POWERSHELL_INJECT,
         "cmd" => CMD_INJECT,
-        "bash" => BASH_INJECT,
+        "gitbash" => GIT_BASH_INJECT,
+        "bash" => POSIX_BASH_INJECT,
+        "zsh" => ZSH_INJECT,
         _ => "",
     };
     if !inject.is_empty() {
@@ -118,11 +164,14 @@ fn pty_create(
         let _ = child.wait();
     });
 
-    manager
-        .sessions
-        .lock()
-        .map_err(|e| e.to_string())?
-        .insert(id, PtySession { writer, master: pair.master, pid });
+    manager.sessions.lock().map_err(|e| e.to_string())?.insert(
+        id,
+        PtySession {
+            writer,
+            master: pair.master,
+            pid,
+        },
+    );
     Ok(())
 }
 
@@ -130,7 +179,9 @@ fn pty_create(
 fn pty_write(manager: State<'_, PtyManager>, id: String, data: String) -> Result<(), String> {
     let mut sessions = manager.sessions.lock().map_err(|e| e.to_string())?;
     if let Some(s) = sessions.get_mut(&id) {
-        s.writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
+        s.writer
+            .write_all(data.as_bytes())
+            .map_err(|e| e.to_string())?;
         s.writer.flush().map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -179,7 +230,10 @@ struct FileEntry {
 #[tauri::command]
 fn list_dir(path: String) -> Result<Vec<FileEntry>, String> {
     let mut result = Vec::new();
-    for entry in std::fs::read_dir(&path).map_err(|e| e.to_string())?.flatten() {
+    for entry in std::fs::read_dir(&path)
+        .map_err(|e| e.to_string())?
+        .flatten()
+    {
         let p = entry.path();
         result.push(FileEntry {
             name: entry.file_name().to_string_lossy().to_string(),
@@ -366,7 +420,22 @@ struct ShellInfo {
     id: String,
     name: String,
     path: String,
-    shell_type: String, // powershell | cmd | bash
+    shell_type: String, // powershell | cmd | gitbash | zsh | bash | fish
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlatformInfo {
+    os: String,
+    arch: String,
+}
+
+#[tauri::command]
+fn platform_info() -> PlatformInfo {
+    PlatformInfo {
+        os: std::env::consts::OS.to_string(),
+        arch: std::env::consts::ARCH.to_string(),
+    }
 }
 
 // 在 PATH 中查找可执行文件
@@ -386,62 +455,106 @@ fn which(exe: &str) -> Option<String> {
 fn detect_shells() -> Vec<ShellInfo> {
     let mut shells = Vec::new();
 
-    if let Some(p) = which("powershell.exe") {
-        shells.push(ShellInfo {
-            id: "powershell".into(),
-            name: "Windows PowerShell".into(),
-            path: p,
-            shell_type: "powershell".into(),
-        });
-    }
-    if let Some(p) = which("pwsh.exe") {
-        shells.push(ShellInfo {
-            id: "pwsh".into(),
-            name: "PowerShell 7".into(),
-            path: p,
-            shell_type: "powershell".into(),
-        });
-    }
-    if let Some(p) = which("cmd.exe") {
-        shells.push(ShellInfo {
-            id: "cmd".into(),
-            name: "Command Prompt".into(),
-            path: p,
-            shell_type: "cmd".into(),
-        });
-    }
-    // Git Bash：先从 git.exe 反推安装根（<root>\cmd\git.exe → <root>\bin\bash.exe），
-    // 不管 Git 装哪都能找到；找不到再退回标准路径
-    let mut bash_path: Option<String> = None;
-    if let Some(git) = which("git.exe") {
-        if let Some(root) = std::path::Path::new(&git)
-            .parent()
-            .and_then(|p| p.parent())
-        {
-            let b = root.join("bin").join("bash.exe");
-            if b.is_file() {
-                bash_path = Some(b.to_string_lossy().to_string());
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(p) = which("powershell.exe") {
+            shells.push(ShellInfo {
+                id: "powershell".into(),
+                name: "Windows PowerShell".into(),
+                path: p,
+                shell_type: "powershell".into(),
+            });
+        }
+        if let Some(p) = which("pwsh.exe") {
+            shells.push(ShellInfo {
+                id: "pwsh".into(),
+                name: "PowerShell 7".into(),
+                path: p,
+                shell_type: "powershell".into(),
+            });
+        }
+        if let Some(p) = which("cmd.exe") {
+            shells.push(ShellInfo {
+                id: "cmd".into(),
+                name: "Command Prompt".into(),
+                path: p,
+                shell_type: "cmd".into(),
+            });
+        }
+        // Git Bash：先从 git.exe 反推安装根（<root>\cmd\git.exe → <root>\bin\bash.exe），
+        // 不管 Git 装哪都能找到；找不到再退回标准路径
+        let mut bash_path: Option<String> = None;
+        if let Some(git) = which("git.exe") {
+            if let Some(root) = std::path::Path::new(&git).parent().and_then(|p| p.parent()) {
+                let b = root.join("bin").join("bash.exe");
+                if b.is_file() {
+                    bash_path = Some(b.to_string_lossy().to_string());
+                }
             }
         }
-    }
-    if bash_path.is_none() {
-        for cand in [
-            "C:\\Program Files\\Git\\bin\\bash.exe",
-            "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
-        ] {
-            if std::path::Path::new(cand).is_file() {
-                bash_path = Some(cand.to_string());
-                break;
+        if bash_path.is_none() {
+            for cand in [
+                "C:\\Program Files\\Git\\bin\\bash.exe",
+                "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
+            ] {
+                if std::path::Path::new(cand).is_file() {
+                    bash_path = Some(cand.to_string());
+                    break;
+                }
             }
         }
+        if let Some(bp) = bash_path {
+            shells.push(ShellInfo {
+                id: "gitbash".into(),
+                name: "Git Bash".into(),
+                path: bp,
+                shell_type: "gitbash".into(),
+            });
+        }
     }
-    if let Some(bp) = bash_path {
-        shells.push(ShellInfo {
-            id: "gitbash".into(),
-            name: "Git Bash".into(),
-            path: bp,
-            shell_type: "bash".into(),
-        });
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let configured = std::env::var("SHELL").ok();
+        let candidates = [
+            ("zsh", "Z shell", "/bin/zsh", "zsh"),
+            ("bash", "Bash", "/bin/bash", "bash"),
+            ("fish", "Fish", "/opt/homebrew/bin/fish", "fish"),
+            ("fish-usr", "Fish", "/usr/local/bin/fish", "fish"),
+        ];
+        for (id, name, path, shell_type) in candidates {
+            if Path::new(path).is_file()
+                && !shells.iter().any(|shell: &ShellInfo| shell.path == path)
+            {
+                shells.push(ShellInfo {
+                    id: id.into(),
+                    name: name.into(),
+                    path: path.into(),
+                    shell_type: shell_type.into(),
+                });
+            }
+        }
+        if let Some(path) = configured {
+            if Path::new(&path).is_file() && !shells.iter().any(|shell| shell.path == path) {
+                let name = Path::new(&path)
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("Shell")
+                    .to_string();
+                shells.insert(
+                    0,
+                    ShellInfo {
+                        id: "default".into(),
+                        name: format!("{} (Default)", name),
+                        path,
+                        shell_type: name.to_lowercase(),
+                    },
+                );
+            } else if let Some(index) = shells.iter().position(|shell| shell.path == path) {
+                let shell = shells.remove(index);
+                shells.insert(0, shell);
+            }
+        }
     }
 
     shells
@@ -455,7 +568,7 @@ fn detect_shells() -> Vec<ShellInfo> {
 #[derive(Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct UsageStats {
-    agent: String,           // 当前标签在跑什么："claude" / "codex" / ""（空=没跑）
+    agent: String, // 当前标签在跑什么："claude" / "codex" / ""（空=没跑）
     model: String,
     context_pct: f64,        // 上下文占用 %（claude 和 codex 都有）
     five_hour_pct: f64,      // claude：官方 5h 额度用量 %
@@ -510,7 +623,9 @@ fn read_statusline_cache() -> Option<serde_json::Value> {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
         .ok()?;
-    let f = PathBuf::from(home).join(".claude").join("statusline-cache.json");
+    let f = PathBuf::from(home)
+        .join(".claude")
+        .join("statusline-cache.json");
     let content = std::fs::read_to_string(f).ok()?;
     serde_json::from_str(&content).ok()
 }
@@ -547,12 +662,14 @@ fn collect_jsonl(dir: &Path, out: &mut Vec<PathBuf>) {
 // 取最后一条 token_count 事件：last_token_usage.input_tokens / model_context_window 为上下文占用。
 // codex 的 rate_limits 字段本地通常为 null，故不取 5h/周额度。
 fn read_codex_usage() -> Option<(f64, u64)> {
-    let base = std::env::var("CODEX_HOME").map(PathBuf::from).unwrap_or_else(|_| {
-        let home = std::env::var("USERPROFILE")
-            .or_else(|_| std::env::var("HOME"))
-            .unwrap_or_default();
-        PathBuf::from(home).join(".codex")
-    });
+    let base = std::env::var("CODEX_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            let home = std::env::var("USERPROFILE")
+                .or_else(|_| std::env::var("HOME"))
+                .unwrap_or_default();
+            PathBuf::from(home).join(".codex")
+        });
     let mut files = Vec::new();
     for sub in ["sessions", "archived_sessions"] {
         collect_jsonl(&base.join(sub), &mut files);
@@ -576,13 +693,17 @@ fn read_codex_usage() -> Option<(f64, u64)> {
         }
         let info = &payload["info"];
         let window = info["model_context_window"].as_f64().unwrap_or(0.0);
-        let last_input = info["last_token_usage"]["input_tokens"].as_f64().unwrap_or(0.0);
+        let last_input = info["last_token_usage"]["input_tokens"]
+            .as_f64()
+            .unwrap_or(0.0);
         let ctx = if window > 0.0 {
             (last_input / window * 100.0).min(100.0)
         } else {
             0.0
         };
-        let total = info["total_token_usage"]["total_tokens"].as_u64().unwrap_or(0);
+        let total = info["total_token_usage"]["total_tokens"]
+            .as_u64()
+            .unwrap_or(0);
         result = Some((ctx, total)); // 保留最后一条
     }
     result
@@ -675,7 +796,9 @@ fn statusline_script_path(app: &AppHandle) -> Option<PathBuf> {
     let cands = [
         rd.join("resources").join("statusline-writer.cjs"),
         rd.join("statusline-writer.cjs"),
-        rd.join("_up_").join("resources").join("statusline-writer.cjs"),
+        rd.join("_up_")
+            .join("resources")
+            .join("statusline-writer.cjs"),
     ];
     cands.into_iter().find(|p| p.exists())
 }
@@ -744,7 +867,9 @@ fn configure_statusline(app: AppHandle, enable: bool, force: bool) -> Result<(),
         // 卸载时删掉残留缓存，避免关开关后前端仍读到旧数据继续显示
         if let Ok(home) = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
             let _ = std::fs::remove_file(
-                PathBuf::from(home).join(".claude").join("statusline-cache.json"),
+                PathBuf::from(home)
+                    .join(".claude")
+                    .join("statusline-cache.json"),
             );
         }
     }
@@ -777,11 +902,11 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(PtyManager::default())
-        .setup(|app| {
+        .setup(|_app| {
             #[cfg(target_os = "windows")]
             {
                 use window_vibrancy::apply_acrylic;
-                if let Some(window) = app.get_webview_window("main") {
+                if let Some(window) = _app.get_webview_window("main") {
                     // 只有 Win11 才上 acrylic；Win10 的 acrylic 边缘有黑边、拖动卡，
                     // 退回普通背景层（窗口正常，只是少了那层毛玻璃）
                     if is_win11() {
@@ -804,8 +929,28 @@ pub fn run() {
             configure_statusline,
             git_status,
             read_file,
-            write_file
+            write_file,
+            platform_info
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolved_shell_type;
+
+    #[test]
+    fn resolves_default_unix_shell_from_executable() {
+        assert_eq!(resolved_shell_type("default", "/bin/zsh"), "zsh");
+        assert_eq!(resolved_shell_type("", "/bin/bash"), "bash");
+    }
+
+    #[test]
+    fn preserves_explicit_shell_type() {
+        assert_eq!(
+            resolved_shell_type("powershell", "C:\\Windows\\pwsh.exe"),
+            "powershell"
+        );
+    }
 }

@@ -205,6 +205,124 @@ body,
   color: #fff;
 }
 
+/* ---------- macOS window chrome ---------- */
+.platform-macos {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  letter-spacing: -0.005em;
+}
+
+.platform-macos .topbar {
+  flex-basis: 48px;
+  padding: 0 12px;
+  gap: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.012)),
+    color-mix(in srgb, var(--ht-panel) 88%, transparent);
+  border-bottom-color: rgba(255, 255, 255, 0.075);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.055);
+  backdrop-filter: blur(28px) saturate(135%);
+  -webkit-backdrop-filter: blur(28px) saturate(135%);
+}
+
+.mac-traffic-lights {
+  flex: 0 0 60px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px;
+  z-index: 2;
+}
+
+.traffic-light {
+  position: relative;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.28);
+  cursor: default;
+}
+
+.traffic-light.close { background: #ff5f57; }
+.traffic-light.minimize { background: #febc2e; }
+.traffic-light.zoom { background: #28c840; }
+
+.mac-traffic-lights:hover .traffic-light::after {
+  position: absolute;
+  inset: -2px 0 0;
+  display: grid;
+  place-items: center;
+  color: rgba(33, 24, 20, 0.72);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.mac-traffic-lights:hover .close::after { content: "×"; }
+.mac-traffic-lights:hover .minimize::after { content: "−"; }
+.mac-traffic-lights:hover .zoom::after { content: "＋"; font-size: 8px; }
+
+.platform-macos .tabs {
+  min-width: 0;
+  gap: 6px;
+}
+
+.platform-macos .tab {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+  color: color-mix(in srgb, var(--ht-fg) 78%, transparent);
+}
+
+.platform-macos .tab:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.platform-macos .tab.active {
+  color: var(--ht-fg);
+  background: rgba(255, 255, 255, 0.11);
+  border-color: rgba(255, 255, 255, 0.07);
+  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.16), inset 0 1px rgba(255, 255, 255, 0.05);
+}
+
+.platform-macos .tab-dot {
+  width: 6px;
+  height: 6px;
+  box-shadow: 0 0 8px color-mix(in srgb, var(--ht-accent) 55%, transparent);
+}
+
+.platform-macos .search-box {
+  height: 28px;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.16);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.platform-macos .sidebar {
+  background: color-mix(in srgb, var(--ht-panel) 82%, transparent);
+  backdrop-filter: blur(22px) saturate(120%);
+  -webkit-backdrop-filter: blur(22px) saturate(120%);
+}
+
+.platform-macos .statusbar {
+  background: color-mix(in srgb, var(--ht-panel) 90%, transparent);
+  border-top-color: rgba(255, 255, 255, 0.065);
+}
+
+@media (max-width: 780px) {
+  .platform-macos .search-box {
+    width: 132px;
+  }
+
+  .platform-macos .tab-title {
+    max-width: 90px;
+  }
+}
+
 /* ---------- 中部 ---------- */
 .body {
   flex: 1 1 auto;
