@@ -92,6 +92,9 @@ function App() {
     [commitTypesRaw],
   );
 
+  // 输入诊断开关。持久化是有意的：用户重启 Brace 复现问题时不该又被关掉
+  const [debugInput, setDebugInput] = usePersistedBool("ht-debug-input", false);
+
   const [showHidden, setShowHidden] = usePersistedBool("ht-hidden", false);
   const [gitDeco, setGitDeco] = usePersistedBool("ht-gitdeco", false);
   const [webgl, setWebgl] = usePersistedBool("ht-webgl", true);
@@ -379,6 +382,7 @@ function App() {
                 shellPath={tab.shellPath}
                 shellType={tab.shellType}
                 onRegisterSearch={registerSearch}
+                debugInput={debugInput}
                 onUnregisterSearch={unregisterSearch}
               />
             ))}
@@ -428,6 +432,8 @@ function App() {
         cursorBlink={cursorBlink}
         onCursorBlink={setCursorBlink}
         commitTypes={commitTypesRaw}
+        debugInput={debugInput}
+        onDebugInput={setDebugInput}
         onCommitTypes={setCommitTypesRaw}
         onProfilesChanged={profiles.refresh}
       />

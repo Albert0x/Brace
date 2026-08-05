@@ -1894,3 +1894,30 @@ body,
 .set-text:focus {
   border-color: var(--ht-accent);
 }
+
+/* 输入诊断日志那一行 */
+.debug-log-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 11px;
+}
+
+.debug-log-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl; /* 路径太长时省略号落在开头，文件名始终看得见 */
+  text-align: left;
+  font-family: var(--mono);
+  color: var(--ht-dim);
+}
+
+.debug-log-size {
+  flex-shrink: 0;
+  font-family: var(--mono);
+  color: var(--ht-dim);
+}

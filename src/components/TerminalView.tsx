@@ -22,6 +22,7 @@ interface Props {
   shellType: string;
   onRegisterSearch: (id: string, addon: SearchAddon) => void;
   onUnregisterSearch: (id: string) => void;
+  debugInput: boolean;
 }
 
 // 终端视图：一个实例对应后端一个 pty 会话
@@ -38,12 +39,20 @@ export default function TerminalView({
   shellType,
   onRegisterSearch,
   onUnregisterSearch,
+  debugInput,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const t = useT();
+
+  // 输入诊断。开关走 ref 读：让 effect 依赖 debugInput 会重建终端，而重建终端
+  // 等于杀掉 PTY 会话——为了打个日志把用户的 shell 干掉，那就本末倒置了。
+  // 监听器常驻，关闭时第一行就返回，开销可以忽略
+  const debugRef = useRef(debugInput);
+  debugRef.current = debugInput;
+  const debugBuf = useRef<string[]>([]);
 
   const paste = () => {
     navigator.clipboard
@@ -169,13 +178,48 @@ export default function TerminalView({
       });
     });
 
-    // 输入诊断：把实际发往 PTY 的字节打到 console，用来排查输入法重复输入这类问题
-    // （xterm 处理完 IME 组合后才会走到 onData，所以这里看到的就是终端真正收到的东西）。
-    // 默认关闭且需要手动开——它会记录你敲的每一个字符，包括密码，不该无条件开着。
-    // 开启：DevTools 里 localStorage.setItem("brace-debug-input", "1")，然后新开一个标签
-    const debugInput = localStorage.getItem("brace-debug-input") === "1";
+    // 诊断：把按键、输入法组合事件、以及最终发往 PTY 的字节按时间顺序记下来。
+    // 只看最终字节不够定位 IME 问题——得能还原事件先后和各时刻 textarea 的内容
+    const stamp = () => {
+      const d = new Date();
+      return (
+        d.toTimeString().slice(0, 8) +
+        "." +
+        String(d.getMilliseconds()).padStart(3, "0")
+      );
+    };
+    const rec = (tag: string, detail: string) => {
+      if (!debugRef.current) return;
+      debugBuf.current.push(`${stamp()} ${tag} ${detail}`);
+    };
+    const ta = term.textarea;
+    const taValue = () => JSON.stringify(ta?.value ?? "");
+    const onComposition = (e: Event) => {
+      const data = (e as CompositionEvent).data ?? "";
+      rec(e.type, `data=${JSON.stringify(data)} textarea=${taValue()}`);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      // keyCode 229 是「输入法正在处理」的标记，xterm 对它有专门分支，
+      // 重复输入的两个嫌疑点都在那条路径上，所以必须记下来
+      rec(
+        "keydown",
+        `key=${JSON.stringify(e.key)} code=${e.code} keyCode=${e.keyCode} textarea=${taValue()}`,
+      );
+    };
+    ta?.addEventListener("compositionstart", onComposition);
+    ta?.addEventListener("compositionupdate", onComposition);
+    ta?.addEventListener("compositionend", onComposition);
+    ta?.addEventListener("keydown", onKeyDown);
+
+    // 攒一秒写一次盘：keydown 很密，每条一次 IPC 会把通道占满
+    const flushDebug = () => {
+      const lines = debugBuf.current.splice(0);
+      if (lines.length) invoke("append_debug_log", { lines }).catch(() => {});
+    };
+    const debugTimer = setInterval(flushDebug, 1000);
+
     term.onData((data) => {
-      if (debugInput) console.debug("[brace:input]", JSON.stringify(data));
+      rec("onData", JSON.stringify(data));
       invoke("pty_write", { id: sessionId, data }).catch(console.error);
     });
 
@@ -191,6 +235,12 @@ export default function TerminalView({
 
     return () => {
       disposed = true;
+      clearInterval(debugTimer);
+      flushDebug(); // 关标签前把没写完的补上
+      ta?.removeEventListener("compositionstart", onComposition);
+      ta?.removeEventListener("compositionupdate", onComposition);
+      ta?.removeEventListener("compositionend", onComposition);
+      ta?.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("resize", syncSize);
       unlistenPromise.then((f) => f());
       onUnregisterSearch(sessionId);

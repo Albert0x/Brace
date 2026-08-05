@@ -330,8 +330,21 @@ struct GitStatus {
 
 // 在 cwd 下跑 git，静默（不弹控制台窗口）；core.quotepath=false 让中文/特殊字符路径
 // 原样输出，不被 octal 转义成 "\346\226\207..." 这种跟 list_dir 的路径对不上的形式
-fn run_git(cwd: &str, args: &[&str]) -> Option<String> {
+// 构造一条 git 命令。
+//
+// read_only 的调用会带上 --no-optional-locks：git status 默认会顺手刷新索引并写回，
+// 而那需要 index.lock。Brace 每 20 秒轮询一次状态，用户正好在终端里敲 git commit
+// 就会撞上「Unable to create index.lock」——终端自己把用户的 git 命令搞挂了，
+// 而且没人会想到是终端干的。
+//
+// 代价是这个开关也禁止了索引缓存的刷新，个别文件 stat 过期时会被多报一次"已修改"。
+// 接受这个代价：装饰上多一个标记是显示问题，用户的 git 命令随机失败是功能故障。
+// 写操作（add/commit/push）不带这个开关，它们本就该拿锁。
+fn git_cmd(cwd: &str, args: &[&str], read_only: bool) -> std::process::Command {
     let mut cmd = std::process::Command::new("git");
+    if read_only {
+        cmd.arg("--no-optional-locks");
+    }
     cmd.arg("-c").arg("core.quotepath=false");
     cmd.arg("-C").arg(cwd).args(args);
     #[cfg(windows)]
@@ -339,7 +352,11 @@ fn run_git(cwd: &str, args: &[&str]) -> Option<String> {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
-    let out = cmd.output().ok()?;
+    cmd
+}
+
+fn run_git(cwd: &str, args: &[&str]) -> Option<String> {
+    let out = git_cmd(cwd, args, true).output().ok()?;
     if out.status.success() {
         Some(String::from_utf8_lossy(&out.stdout).to_string())
     } else {
@@ -411,16 +428,10 @@ fn git_status(cwd: String) -> GitStatus {
 
 // 跑 git 拿结果：Ok=stdout，Err=git 的 stderr（失败原因原样给前端，如未配 user.name、
 // push 被拒、无 upstream 等）。run_git 只返回 Option 丢了错误，提交场景必须拿到原因
-fn run_git_out(cwd: &str, args: &[&str]) -> Result<String, String> {
-    let mut cmd = std::process::Command::new("git");
-    cmd.arg("-c").arg("core.quotepath=false");
-    cmd.arg("-C").arg(cwd).args(args);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
-    let out = cmd.output().map_err(|e| format!("无法运行 git：{}", e))?;
+fn run_git_out(cwd: &str, args: &[&str], read_only: bool) -> Result<String, String> {
+    let out = git_cmd(cwd, args, read_only)
+        .output()
+        .map_err(|e| format!("无法运行 git：{}", e))?;
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).to_string())
     } else {
@@ -457,8 +468,8 @@ fn git_commit(
     }
 
     if all {
-        run_git_out(&cwd, &["add", "-A"])?;
-        run_git_out(&cwd, &["commit", "-m", &message])?;
+        run_git_out(&cwd, &["add", "-A"], false)?;
+        run_git_out(&cwd, &["commit", "-m", &message], false)?;
     } else {
         if paths.is_empty() {
             return Err("没有选中任何文件".into());
@@ -467,15 +478,15 @@ fn git_commit(
         // add 要能处理已删除的文件，-A 配 pathspec 正是「把这些路径的增删改都暂存」
         let mut add: Vec<&str> = vec!["add", "-A", "--"];
         add.extend(specs.iter().map(|s| s.as_str()));
-        run_git_out(&cwd, &add)?;
+        run_git_out(&cwd, &add, false)?;
 
         let mut commit: Vec<&str> = vec!["commit", "-m", &message, "--"];
         commit.extend(specs.iter().map(|s| s.as_str()));
-        run_git_out(&cwd, &commit)?;
+        run_git_out(&cwd, &commit, false)?;
     }
 
     if push {
-        run_git_out(&cwd, &["push"])?;
+        run_git_out(&cwd, &["push"], false)?;
         Ok("pushed".into())
     } else {
         Ok("committed".into())
@@ -492,7 +503,7 @@ fn git_diff(cwd: String, path: String) -> Result<String, String> {
 
     // 未跟踪的文件 git diff 给不出东西（HEAD 里没有它）。这类文件整份都是新增，
     // 直接读出来自己拼成 diff 的样子，比让用户看一片空白强
-    let tracked = run_git_out(&cwd, &["ls-files", "--error-unmatch", "--", &spec]).is_ok();
+    let tracked = run_git_out(&cwd, &["ls-files", "--error-unmatch", "--", &spec], true).is_ok();
     if !tracked {
         let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
         if bytes.len() > 512_000 {
@@ -510,9 +521,9 @@ fn git_diff(cwd: String, path: String) -> Result<String, String> {
     }
 
     // HEAD 在一个提交都还没有的仓库里不存在，这时跟空树比
-    let diff = match run_git_out(&cwd, &["diff", "HEAD", "--", &spec]) {
+    let diff = match run_git_out(&cwd, &["diff", "HEAD", "--", &spec], true) {
         Ok(d) => d,
-        Err(_) => run_git_out(&cwd, &["diff", "--", &spec])?,
+        Err(_) => run_git_out(&cwd, &["diff", "--", &spec], true)?,
     };
     if diff.len() > 512_000 {
         return Ok("(改动过大，不显示 diff)".into());
@@ -1323,6 +1334,88 @@ fn delete_entry(path: String) -> Result<(), String> {
     trash::delete(&path).map_err(|e| e.to_string())
 }
 
+// ---------- 输入诊断 ----------
+// 输入法相关的问题（比如 Win10 + 第三方输入法的重复输入）只在最终用户的机器上复现，
+// 而 release 包里 DevTools 是关的——console 打了也没人看得见。所以只能落盘成文件，
+// 让用户把文件发回来。开关在设置界面里，不能依赖 console 执行命令去开。
+
+const DEBUG_LOG_MAX: u64 = 4_000_000;
+
+fn debug_log_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("拿不到配置目录：{}", e))?;
+    Ok(dir.join("input-debug.log"))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DebugLogInfo {
+    path: String,
+    size: u64,
+    exists: bool,
+}
+
+#[tauri::command]
+fn debug_log_info(app: AppHandle) -> Result<DebugLogInfo, String> {
+    let path = debug_log_path(&app)?;
+    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    Ok(DebugLogInfo {
+        exists: path.exists(),
+        path: path.to_string_lossy().to_string(),
+        size,
+    })
+}
+
+#[tauri::command]
+fn append_debug_log(app: AppHandle, lines: Vec<String>) -> Result<(), String> {
+    if lines.is_empty() {
+        return Ok(());
+    }
+    let path = debug_log_path(&app)?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+
+    // 到了上限就停笔，不做轮转。一次复现用不了几十 KB，涨到 4MB 只说明诊断忘了关，
+    // 这时候继续写下去只是在悄悄吃硬盘
+    let existing = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    if existing > DEBUG_LOG_MAX {
+        return Ok(());
+    }
+
+    use std::io::Write as _;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|e| e.to_string())?;
+    // 空文件先写个抬头，说明这文件是什么、里面有什么、怎么关掉
+    if existing == 0 {
+        let _ = writeln!(
+            f,
+            "# Brace 输入诊断日志\n\
+             # 这个文件记录你在终端里的按键、输入法组合事件和最终发往终端的字符，\n\
+             # 用于排查输入法重复输入之类的问题。它包含你输入的全部内容。\n\
+             # 关闭：设置 → 关于 → 输入诊断。删除：同一处的「清除日志」。\n"
+        );
+    }
+    for line in lines {
+        writeln!(f, "{}", line).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn clear_debug_log(app: AppHandle) -> Result<(), String> {
+    let path = debug_log_path(&app)?;
+    if path.exists() {
+        std::fs::remove_file(&path).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 // ---------- 背景图 ----------
 // 原来整张图的 base64 直接塞 localStorage，5MB 配额一超就静默失败，
 // 用户设完壁纸重启发现没了还不知道为什么。改成落盘到应用配置目录。
@@ -1784,6 +1877,9 @@ pub fn run() {
             save_bg_image,
             load_bg_image,
             watch_dirs,
+            debug_log_info,
+            append_debug_log,
+            clear_debug_log,
             create_entry,
             rename_entry,
             delete_entry

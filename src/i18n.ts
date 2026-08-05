@@ -126,6 +126,15 @@ export const MESSAGES: Record<Lang, Record<string, string>> = {
     "about.checking": "Checking…",
     "about.viewGithub": "View on GitHub",
     "about.reportIssue": "Report an issue",
+    // 输入诊断
+    "debug.title": "Input diagnostics",
+    "debug.enable": "Record input events to a log file",
+    "debug.enableDesc":
+      "For troubleshooting IME issues such as duplicated text. Takes effect immediately; leave it off otherwise.",
+    "debug.warning":
+      "⚠ While this is on, every keystroke you type in a terminal is written to the log file in plain text — passwords included. Turn it off and clear the log when you are done.",
+    "debug.reveal": "Show file",
+    "debug.clear": "Clear log",
     // 更新弹窗
     "update.latest": "You are on the latest version v{v}.",
     "update.found": "New version v{v} available.",
@@ -283,6 +292,14 @@ export const MESSAGES: Record<Lang, Record<string, string>> = {
     "about.checking": "检查中…",
     "about.viewGithub": "在 GitHub 查看",
     "about.reportIssue": "反馈问题",
+    // 输入诊断
+    "debug.title": "输入诊断",
+    "debug.enable": "把输入事件记录到日志文件",
+    "debug.enableDesc": "用于排查输入法重复输入之类的问题。开关立即生效，平时保持关闭。",
+    "debug.warning":
+      "⚠ 开启期间，你在终端里敲的每一个字符都会明文写进日志文件，包括密码。用完请关掉并清除日志。",
+    "debug.reveal": "打开所在文件夹",
+    "debug.clear": "清除日志",
     "update.latest": "当前已是最新版本 v{v}。",
     "update.found": "发现新版本 v{v}。",
     "update.downloading": "下载中… {p}%",
