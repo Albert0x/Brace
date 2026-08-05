@@ -161,10 +161,21 @@ export default function TerminalView({
         cwd: initialCwd,
         shellPath,
         shellType,
-      }).catch(console.error);
+      }).catch((e) => {
+        // 起不来就直接写在终端里。以前只 console.error，用户看到的是一个
+        // 一动不动的黑框，完全不知道发生了什么——恢复出来的标签指向一个
+        // 已经卸载掉的 shell 时尤其容易撞上
+        term.write(`\r\n\x1b[31m${t("term.spawnFailed", { e: String(e) })}\x1b[0m\r\n`);
+      });
     });
 
+    // 输入诊断：把实际发往 PTY 的字节打到 console，用来排查输入法重复输入这类问题
+    // （xterm 处理完 IME 组合后才会走到 onData，所以这里看到的就是终端真正收到的东西）。
+    // 默认关闭且需要手动开——它会记录你敲的每一个字符，包括密码，不该无条件开着。
+    // 开启：DevTools 里 localStorage.setItem("brace-debug-input", "1")，然后新开一个标签
+    const debugInput = localStorage.getItem("brace-debug-input") === "1";
     term.onData((data) => {
+      if (debugInput) console.debug("[brace:input]", JSON.stringify(data));
       invoke("pty_write", { id: sessionId, data }).catch(console.error);
     });
 

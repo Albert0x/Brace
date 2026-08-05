@@ -1,12 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useT } from "../i18n";
-
-interface FileEntry {
-  name: string;
-  path: string;
-  is_dir: boolean;
-}
+import { useFileTree, type FileEntry } from "../hooks/useFileTree";
+import FileEntryDialog, { type EntryAction } from "./FileEntryDialog";
 
 export interface GitStatus {
   isRepo: boolean;
@@ -31,68 +28,46 @@ function statusClass(code: string): string {
   }
 }
 
-// 单个树节点：文件夹单击展开、双击 cd；文件单击预览、右键「在终端显示」
+const parentOf = (path: string) => path.slice(0, path.lastIndexOf("\\"));
+
+interface NodeHandlers {
+  onOpenDir: (path: string) => void;
+  onOpenFile: (path: string, name: string) => void;
+  onShowInTerminal: (path: string) => void;
+  onContextMenu: (entry: FileEntry, x: number, y: number) => void;
+}
+
+// 单个树节点。展开状态和子项内容都由上层的 useFileTree 持有，这里只负责画
 function TreeNode({
   entry,
   depth,
-  onOpenDir,
-  onOpenFile,
-  onShowInTerminal,
+  tree,
+  handlers,
   showHidden,
   gitStatus,
   gitDeco,
+  dirtyDirs,
   parentIgnored,
 }: {
   entry: FileEntry;
   depth: number;
-  onOpenDir: (path: string) => void;
-  onOpenFile: (path: string, name: string) => void;
-  onShowInTerminal: (path: string) => void;
+  tree: ReturnType<typeof useFileTree>;
+  handlers: NodeHandlers;
   showHidden: boolean;
   gitStatus: GitStatus | null;
   gitDeco: boolean;
+  dirtyDirs: Set<string>;
   parentIgnored: boolean;
 }) {
   const t = useT();
-  const [expanded, setExpanded] = useState(false);
-  const [children, setChildren] = useState<FileEntry[] | null>(null);
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-
-  const onClick = async () => {
-    if (!entry.is_dir) {
-      onOpenFile(entry.path, entry.name);
-      return;
-    }
-    if (!expanded && children === null) {
-      try {
-        setChildren(await invoke<FileEntry[]>("list_dir", { path: entry.path }));
-      } catch {
-        setChildren([]);
-      }
-    }
-    setExpanded((e) => !e);
-  };
-
-  useEffect(() => {
-    if (!menu) return;
-    const close = () => setMenu(null);
-    window.addEventListener("click", close);
-    return () => window.removeEventListener("click", close);
-  }, [menu]);
-
-  const visibleChildren = children?.filter(
-    (c) => showHidden || !c.name.startsWith("."),
-  );
+  const expanded = entry.is_dir && tree.expanded.has(entry.path);
+  const children = tree.entries[entry.path];
 
   // git 装饰：文件取自身状态；文件夹看内部有没有改动（汇总一个点）
   const code = gitDeco && gitStatus ? gitStatus.files[entry.path] : undefined;
   const ignored = code === "!" || parentIgnored;
-  const folderDirty =
-    gitDeco && entry.is_dir && gitStatus
-      ? Object.keys(gitStatus.files).some(
-          (p) => gitStatus.files[p] !== "!" && p.startsWith(entry.path + "\\"),
-        )
-      : false;
+  // 脏目录集合在上层一次性算好，这里 O(1) 查表
+  const folderDirty = entry.is_dir && dirtyDirs.has(entry.path);
   const nameCls =
     "tree-name" + (code && code !== "!" ? " git-" + statusClass(code) : "");
 
@@ -101,12 +76,16 @@ function TreeNode({
       <div
         className={"tree-item" + (ignored ? " git-ignored" : "")}
         style={{ paddingLeft: 8 + depth * 14 }}
-        onClick={onClick}
-        onDoubleClick={() => entry.is_dir && onOpenDir(entry.path)}
+        onClick={() =>
+          entry.is_dir
+            ? tree.toggle(entry.path)
+            : handlers.onOpenFile(entry.path, entry.name)
+        }
+        onDoubleClick={() => entry.is_dir && handlers.onOpenDir(entry.path)}
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          setMenu({ x: e.clientX, y: e.clientY });
+          handlers.onContextMenu(entry, e.clientX, e.clientY);
         }}
         title={entry.is_dir ? t("tree.enterDir", { path: entry.path }) : entry.path}
       >
@@ -120,49 +99,23 @@ function TreeNode({
         )}
         {folderDirty && !code && <span className="git-dot" />}
       </div>
-      {menu && (
-        <div
-          className="ctx-menu"
-          style={{ left: menu.x, top: menu.y }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {!entry.is_dir && (
-            <div
-              className="ctx-item"
-              onClick={() => {
-                onOpenFile(entry.path, entry.name);
-                setMenu(null);
-              }}
-            >
-              <span>{t("ctx.preview")}</span>
-            </div>
-          )}
-          <div
-            className="ctx-item"
-            onClick={() => {
-              onShowInTerminal(entry.path);
-              setMenu(null);
-            }}
-          >
-            <span>{t("ctx.showInTerminal")}</span>
-          </div>
-        </div>
-      )}
       {expanded &&
-        visibleChildren?.map((c) => (
-          <TreeNode
-            key={c.path}
-            entry={c}
-            depth={depth + 1}
-            onOpenDir={onOpenDir}
-            onOpenFile={onOpenFile}
-            onShowInTerminal={onShowInTerminal}
-            showHidden={showHidden}
-            gitStatus={gitStatus}
-            gitDeco={gitDeco}
-            parentIgnored={ignored}
-          />
-        ))}
+        children
+          ?.filter((c) => showHidden || !c.hidden)
+          .map((c) => (
+            <TreeNode
+              key={c.path}
+              entry={c}
+              depth={depth + 1}
+              tree={tree}
+              handlers={handlers}
+              showHidden={showHidden}
+              gitStatus={gitStatus}
+              gitDeco={gitDeco}
+              dirtyDirs={dirtyDirs}
+              parentIgnored={ignored}
+            />
+          ))}
     </div>
   );
 }
@@ -186,29 +139,102 @@ export default function FileTree({
   gitDeco: boolean;
 }) {
   const t = useT();
-  const [root, setRoot] = useState<FileEntry[]>([]);
-  // 快速切目录/手动刷新会并发发出多个 list_dir，用请求序号只认最后一个发出的那个，
-  // 避免慢的旧请求后返回，把新目录的结果覆盖掉
-  const requestId = useRef(0);
+  const tree = useFileTree(rootPath);
 
-  const load = (path: string) => {
-    if (!path) return;
-    const id = ++requestId.current;
-    invoke<FileEntry[]>("list_dir", { path })
-      .then((entries) => {
-        if (id === requestId.current) setRoot(entries);
-      })
-      .catch(() => {
-        if (id === requestId.current) setRoot([]);
-      });
-  };
+  const [menu, setMenu] = useState<{
+    entry: FileEntry | null; // null = 在空白处右键，操作对象是根目录
+    x: number;
+    y: number;
+  } | null>(null);
+  const [dialog, setDialog] = useState<{
+    action: EntryAction;
+    entry: FileEntry | null;
+  } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    load(rootPath);
-  }, [rootPath]);
+    if (!menu) return;
+    const close = () => setMenu(null);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [menu]);
+
+  // 把每个改动文件的各级父目录预先标脏，树上查表就行。
+  // 自底向上走，碰到已标过的祖先就停——它上面的必然也已经标过了
+  const dirtyDirs = useMemo(() => {
+    const dirs = new Set<string>();
+    if (!gitDeco || !gitStatus) return dirs;
+    for (const [file, code] of Object.entries(gitStatus.files)) {
+      if (code === "!") continue;
+      let cut = file.lastIndexOf("\\");
+      while (cut > 0) {
+        const dir = file.slice(0, cut);
+        if (dirs.has(dir)) break;
+        dirs.add(dir);
+        cut = dir.lastIndexOf("\\");
+      }
+    }
+    return dirs;
+  }, [gitStatus, gitDeco]);
+
+  const openDialog = (action: EntryAction, entry: FileEntry | null) => {
+    setError("");
+    setDialog({ action, entry });
+    setMenu(null);
+  };
+
+  // 新建落在哪个目录：对着文件夹右键就是它自己，对着文件或空白就是所在目录
+  const targetDir = (entry: FileEntry | null) =>
+    !entry ? rootPath : entry.is_dir ? entry.path : parentOf(entry.path);
+
+  const runDialog = async (name: string) => {
+    if (!dialog) return;
+    const { action, entry } = dialog;
+    setBusy(true);
+    setError("");
+    try {
+      if (action === "delete") {
+        if (!entry) return;
+        await invoke("delete_entry", { path: entry.path });
+        // 删的是目录的话，它和子孙不能继续赖在展开集合里
+        if (entry.is_dir) tree.collapseSubtree(entry.path);
+        tree.reloadDir(parentOf(entry.path));
+      } else if (action === "rename") {
+        if (!entry) return;
+        await invoke("rename_entry", { path: entry.path, name });
+        if (entry.is_dir) tree.collapseSubtree(entry.path);
+        tree.reloadDir(parentOf(entry.path));
+      } else {
+        const dir = targetDir(entry);
+        await invoke("create_entry", {
+          parent: dir,
+          name,
+          isDir: action === "newFolder",
+        });
+        tree.reloadDir(dir);
+      }
+      setDialog(null);
+    } catch (e) {
+      // 失败就把对话框留着显示原因，用户可以改个名字再试，不用从右键重来
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const rootName = rootPath.split(/[\\/]/).filter(Boolean).pop() ?? rootPath;
-  const visibleRoot = root.filter((e) => showHidden || !e.name.startsWith("."));
+  const rootEntries = tree.entries[rootPath] ?? [];
+  const visibleRoot = rootEntries.filter((e) => showHidden || !e.hidden);
+
+  const handlers: NodeHandlers = {
+    onOpenDir,
+    onOpenFile,
+    onShowInTerminal,
+    onContextMenu: (entry, x, y) => setMenu({ entry, x, y }),
+  };
+
+  const menuEntry = menu?.entry ?? null;
 
   return (
     <>
@@ -216,28 +242,148 @@ export default function FileTree({
         <span title={rootPath}>{rootName.toUpperCase()}</span>
         <span
           className="sidebar-actions"
+          title={t("tree.newFile")}
+          onClick={() => openDialog("newFile", null)}
+        >
+          ＋
+        </span>
+        <span
+          className="sidebar-actions"
           title={t("sidebar.refresh")}
-          onClick={() => load(rootPath)}
+          onClick={tree.refresh}
         >
           ⟳
         </span>
       </div>
-      <div className="file-tree">
+
+      <div
+        className="file-tree"
+        onContextMenu={(e) => {
+          // 空白处右键：操作对象是根目录，方便直接在根下新建
+          e.preventDefault();
+          setMenu({ entry: null, x: e.clientX, y: e.clientY });
+        }}
+      >
         {visibleRoot.map((e) => (
           <TreeNode
-            key={rootPath + "|" + e.path}
+            key={e.path}
             entry={e}
             depth={0}
-            onOpenDir={onOpenDir}
-            onOpenFile={onOpenFile}
-            onShowInTerminal={onShowInTerminal}
+            tree={tree}
+            handlers={handlers}
             showHidden={showHidden}
             gitStatus={gitStatus}
             gitDeco={gitDeco}
+            dirtyDirs={dirtyDirs}
             parentIgnored={false}
           />
         ))}
       </div>
+
+      {menu && (
+        <div
+          className="ctx-menu"
+          // 靠近屏幕下缘时向上展开，免得菜单被切掉一半
+          style={
+            menu.y > window.innerHeight / 2
+              ? { left: menu.x, bottom: window.innerHeight - menu.y }
+              : { left: menu.x, top: menu.y }
+          }
+          onClick={(e) => e.stopPropagation()}
+        >
+          {menuEntry && !menuEntry.is_dir && (
+            <div
+              className="ctx-item"
+              onClick={() => {
+                onOpenFile(menuEntry.path, menuEntry.name);
+                setMenu(null);
+              }}
+            >
+              <span>{t("ctx.preview")}</span>
+            </div>
+          )}
+          {menuEntry && (
+            <div
+              className="ctx-item"
+              onClick={() => {
+                if (menuEntry.is_dir) onOpenDir(menuEntry.path);
+                else onShowInTerminal(menuEntry.path);
+                setMenu(null);
+              }}
+            >
+              <span>
+                {menuEntry.is_dir ? t("ctx.cdHere") : t("ctx.showInTerminal")}
+              </span>
+            </div>
+          )}
+          {menuEntry && <div className="ctx-sep" />}
+
+          <div className="ctx-item" onClick={() => openDialog("newFile", menuEntry)}>
+            <span>{t("tree.newFile")}</span>
+          </div>
+          <div
+            className="ctx-item"
+            onClick={() => openDialog("newFolder", menuEntry)}
+          >
+            <span>{t("tree.newFolder")}</span>
+          </div>
+
+          {menuEntry && (
+            <>
+              <div className="ctx-sep" />
+              <div
+                className="ctx-item"
+                onClick={() => openDialog("rename", menuEntry)}
+              >
+                <span>{t("tree.rename")}</span>
+              </div>
+              <div
+                className="ctx-item danger"
+                onClick={() => openDialog("delete", menuEntry)}
+              >
+                <span>{t("tree.delete")}</span>
+              </div>
+            </>
+          )}
+
+          <div className="ctx-sep" />
+          <div
+            className="ctx-item"
+            onClick={() => {
+              navigator.clipboard
+                .writeText(menuEntry?.path ?? rootPath)
+                .catch(() => {});
+              setMenu(null);
+            }}
+          >
+            <span>{t("tree.copyPath")}</span>
+          </div>
+          <div
+            className="ctx-item"
+            onClick={() => {
+              revealItemInDir(menuEntry?.path ?? rootPath).catch(console.error);
+              setMenu(null);
+            }}
+          >
+            <span>{t("tree.revealInExplorer")}</span>
+          </div>
+        </div>
+      )}
+
+      {dialog && (
+        <FileEntryDialog
+          action={dialog.action}
+          target={
+            dialog.action === "newFile" || dialog.action === "newFolder"
+              ? targetDir(dialog.entry).split("\\").pop() || rootName
+              : (dialog.entry?.name ?? "")
+          }
+          busy={busy}
+          error={error}
+          onCancel={() => setDialog(null)}
+          onSubmit={runDialog}
+        />
+      )}
     </>
   );
 }

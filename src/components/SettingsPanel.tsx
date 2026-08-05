@@ -4,6 +4,8 @@ import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import ProfilePanel from "./ProfilePanel";
+import { DEFAULT_COMMIT_TYPES } from "./GitPanel";
 import { THEMES, type Theme } from "../themes";
 import { useLang, LANGS, type Lang } from "../i18n";
 
@@ -38,6 +40,9 @@ interface Props {
   onWebgl: (v: boolean) => void;
   cursorBlink: boolean;
   onCursorBlink: (v: boolean) => void;
+  commitTypes: string;
+  onCommitTypes: (v: string) => void;
+  onProfilesChanged: () => void;
 }
 
 function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
@@ -72,7 +77,7 @@ function Row({
   );
 }
 
-type Tab = "general" | "themes" | "about";
+type Tab = "general" | "themes" | "profiles" | "about";
 
 export default function SettingsPanel(props: Props) {
   const { lang, setLang, t } = useLang();
@@ -128,6 +133,7 @@ export default function SettingsPanel(props: Props) {
   const TABS: { id: Tab; key: string; icon: string }[] = [
     { id: "general", key: "settings.general", icon: "⚙" },
     { id: "themes", key: "settings.themes", icon: "🎨" },
+    { id: "profiles", key: "settings.profiles", icon: "🔑" },
     { id: "about", key: "settings.about", icon: "ⓘ" },
   ];
 
@@ -253,6 +259,17 @@ export default function SettingsPanel(props: Props) {
                 <Toggle on={props.cursorBlink} onChange={props.onCursorBlink} />
               </Row>
 
+              <div className="settings-section-title">{t("general.git")}</div>
+              <Row title={t("general.commitTypes")} desc={t("general.commitTypesDesc")}>
+                <input
+                  className="set-text"
+                  value={props.commitTypes}
+                  spellCheck={false}
+                  placeholder={DEFAULT_COMMIT_TYPES}
+                  onChange={(e) => props.onCommitTypes(e.target.value)}
+                />
+              </Row>
+
               <div className="settings-section-title">{t("usage.title")}</div>
               <Row title={t("usage.enable")} desc={t("usage.enableDesc")}>
                 <Toggle
@@ -354,6 +371,11 @@ export default function SettingsPanel(props: Props) {
                 </div>
               )}
             </>
+          )}
+
+          {/* ---------- Profiles ---------- */}
+          {tab === "profiles" && (
+            <ProfilePanel onChanged={props.onProfilesChanged} />
           )}
 
           {/* ---------- About ---------- */}

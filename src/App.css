@@ -226,12 +226,21 @@ body,
 .sidebar-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
   padding: 10px 12px;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.6px;
   color: var(--ht-dim);
+}
+
+/* 标题吃掉剩余宽度，把动作图标顶到右边挨在一起；目录名过长时省略而不是把图标挤走 */
+.sidebar-head > span:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar-actions {
@@ -430,6 +439,15 @@ body,
   height: 100%;
   color: var(--ht-dim);
   font-size: 14px;
+}
+/* 保存失败的原因（只读、磁盘满、原编码放不下新字符…），不能再静默吞掉 */
+.preview-error {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  color: #e06c75;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .preview-confirm-overlay {
   position: absolute;
@@ -1374,4 +1392,505 @@ body,
 
 ::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* ---------- 环境变量配置组 ---------- */
+
+/* 状态栏徽标 + 向上弹出的快速切换菜单 */
+.status-profile-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.status-profile.clickable {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.status-profile.clickable:hover {
+  background: var(--ht-hover);
+  color: var(--ht-fg);
+}
+
+.profile-menu {
+  position: absolute;
+  bottom: 22px;
+  left: 0;
+  z-index: 200;
+  min-width: 210px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--ht-base);
+  border: 1px solid var(--ht-border);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.45);
+}
+
+.profile-menu-hint {
+  padding: 6px 10px 8px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--ht-dim);
+  border-bottom: 1px solid var(--ht-border);
+  margin-bottom: 4px;
+}
+
+.profile-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border-radius: 5px;
+  font-size: 13px;
+  color: var(--ht-fg);
+  cursor: pointer;
+}
+
+.profile-item:hover {
+  background: var(--ht-active);
+}
+
+.profile-item.selected {
+  color: var(--ht-accent);
+}
+
+.profile-item-desc {
+  font-size: 10px;
+  color: var(--ht-dim);
+}
+
+/* 设置面板里的编辑区 */
+.prof-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.prof-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--ht-border);
+  border-radius: 999px;
+  background: var(--ht-hover);
+  color: var(--ht-fg);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.prof-chip:hover {
+  background: var(--ht-active);
+}
+
+.prof-chip.selected {
+  border-color: var(--ht-accent);
+  color: var(--ht-accent);
+}
+
+/* 当前生效的那组，chip 上点一颗小圆点 */
+.prof-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ht-accent);
+}
+
+.prof-chip-add {
+  color: var(--ht-dim);
+}
+
+.prof-name {
+  width: 100%;
+  margin-top: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--ht-border);
+  border-radius: 7px;
+  background: var(--ht-hover);
+  color: var(--ht-fg);
+  font-size: 13px;
+  outline: none;
+}
+
+.prof-name:focus {
+  border-color: var(--ht-accent);
+}
+
+.prof-tpl-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.prof-vars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.prof-var {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.prof-key,
+.prof-value {
+  padding: 7px 9px;
+  border: 1px solid var(--ht-border);
+  border-radius: 6px;
+  background: var(--ht-hover);
+  color: var(--ht-fg);
+  font-family: var(--mono);
+  font-size: 12px;
+  outline: none;
+  min-width: 0;
+}
+
+.prof-key {
+  flex: 0 0 38%;
+}
+
+.prof-value {
+  flex: 1;
+}
+
+.prof-key:focus,
+.prof-value:focus {
+  border-color: var(--ht-accent);
+}
+
+.prof-lock,
+.prof-del {
+  flex-shrink: 0;
+  width: 28px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ht-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.prof-lock:hover,
+.prof-del:hover {
+  background: var(--ht-active);
+  color: var(--ht-fg);
+}
+
+.prof-btn {
+  padding: 7px 14px;
+  border: 1px solid var(--ht-border);
+  border-radius: 7px;
+  background: var(--ht-hover);
+  color: var(--ht-fg);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.prof-btn:hover:not(:disabled) {
+  background: var(--ht-active);
+}
+
+.prof-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.prof-btn.primary {
+  border-color: var(--ht-accent);
+  color: var(--ht-accent);
+}
+
+.prof-btn-danger {
+  color: #ff7676;
+}
+
+.prof-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.prof-error {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #e06c75;
+  word-break: break-word;
+}
+
+.prof-ok {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #4fd6b5;
+}
+
+/* ---------- 文件树：右键危险项 + 增删改对话框 ---------- */
+
+.ctx-item.danger {
+  color: #ff7676;
+}
+
+.entry-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.entry-dialog {
+  width: 340px;
+  background: var(--ht-base);
+  border: 1px solid var(--ht-border);
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.entry-dialog-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ht-fg);
+  margin-bottom: 12px;
+}
+
+.entry-dialog-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--ht-border);
+  border-radius: 7px;
+  background: var(--ht-hover);
+  color: var(--ht-fg);
+  font-family: var(--mono);
+  font-size: 13px;
+  outline: none;
+}
+
+.entry-dialog-input:focus {
+  border-color: var(--ht-accent);
+}
+
+.entry-dialog-msg {
+  font-size: 13px;
+  color: var(--ht-fg);
+  word-break: break-all;
+}
+
+.entry-dialog-sub {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--ht-dim);
+}
+
+.entry-dialog-error {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #e06c75;
+  word-break: break-word;
+}
+
+.entry-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.entry-dialog-btn {
+  padding: 7px 16px;
+  border: 1px solid var(--ht-border);
+  border-radius: 7px;
+  background: var(--ht-hover);
+  color: var(--ht-fg);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.entry-dialog-btn:hover:not(:disabled) {
+  background: var(--ht-active);
+}
+
+.entry-dialog-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.entry-dialog-btn.primary {
+  border-color: var(--ht-accent);
+  color: var(--ht-accent);
+}
+
+.entry-dialog-btn.danger {
+  border-color: #ff7676;
+  color: #ff7676;
+}
+
+/* ---------- Git 面板：勾选 + diff ---------- */
+
+.git-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.git-all input[type="checkbox"],
+.git-item input[type="checkbox"] {
+  flex: 0 0 auto;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--ht-accent);
+}
+
+.git-file.clickable {
+  cursor: pointer;
+}
+
+.git-file.clickable:hover {
+  text-decoration: underline;
+}
+
+/* 展开着 diff 的那个文件高亮一下，列表长了也知道在看谁 */
+.git-file.open {
+  color: var(--ht-accent);
+}
+
+.git-diff {
+  margin: 2px 0 8px 30px;
+  padding: 8px 0;
+  max-height: 260px;
+  overflow: auto;
+  border-left: 2px solid var(--ht-border);
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 0 6px 6px 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.git-diff-line {
+  padding: 0 10px;
+  white-space: pre;
+  color: var(--ht-fg);
+}
+
+.git-diff-line.add {
+  color: #4fd6b5;
+  background: rgba(79, 214, 181, 0.08);
+}
+
+.git-diff-line.del {
+  color: #e06c75;
+  background: rgba(224, 108, 117, 0.08);
+}
+
+.git-diff-line.hunk {
+  color: #7aa2f7;
+}
+
+.git-diff-line.meta {
+  color: var(--ht-dim);
+}
+
+.git-diff-loading {
+  margin: 2px 0 8px 30px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--ht-dim);
+}
+
+/* Conventional Commit 类型选择 */
+.git-type-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin: 10px 16px 0;
+}
+
+.git-type {
+  padding: 3px 9px;
+  border: 1px solid var(--ht-border);
+  border-radius: 999px;
+  background: var(--ht-hover);
+  color: var(--ht-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.git-type:hover {
+  background: var(--ht-active);
+  color: var(--ht-fg);
+}
+
+.git-type.on {
+  border-color: var(--ht-accent);
+  color: var(--ht-accent);
+}
+
+.git-scope {
+  flex: 1 1 80px;
+  min-width: 70px;
+  padding: 3px 9px;
+  border: 1px solid var(--ht-border);
+  border-radius: 999px;
+  background: var(--ht-hover);
+  color: var(--ht-fg);
+  font-family: var(--mono);
+  font-size: 11px;
+  outline: none;
+}
+
+.git-scope:focus {
+  border-color: var(--ht-accent);
+}
+
+/* 最终会写进 git 的内容长什么样。多行原样显示，标题和正文之间有没有空行一眼可见 */
+.git-preview {
+  margin: 8px 16px 0;
+  padding: 6px 9px;
+  max-height: 88px;
+  overflow-y: auto;
+  border-left: 2px solid var(--ht-border);
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 0 6px 6px 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ht-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 设置面板里的文本输入（提交类型这类自由填写项） */
+.set-text {
+  width: 210px;
+  padding: 6px 9px;
+  border: 1px solid var(--ht-border);
+  border-radius: 7px;
+  background: var(--ht-hover);
+  color: var(--ht-fg);
+  font-family: var(--mono);
+  font-size: 11px;
+  outline: none;
+}
+
+.set-text:focus {
+  border-color: var(--ht-accent);
 }

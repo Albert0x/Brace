@@ -37,4 +37,21 @@ sysinfo = "0.33"
 winreg = "0.10"
 # 文件预览：图片转 base64 data URI
 base64 = "0.22"
+# 文件预览：中文 Windows 上大量 .bat/.txt 是 GBK，PowerShell 5.1 输出的是 UTF-16LE，
+# 只按 UTF-8 读会全部误判成二进制文件
+encoding_rs = "0.8"
+chardetng = "1"
+# 文件树自动刷新：监听当前目录的文件系统变化。用 debouncer 版本是因为
+# 一次 pnpm install 能刷出几千个事件，不防抖会把 IPC 打爆
+notify-debouncer-full = "0.7"
+# 文件树的删除走回收站，不做永久删除——树上手一抖点到删除的概率不低
+trash = "5"
+
+[target.'cfg(windows)'.dependencies]
+# DPAPI：配置组里的 API Key 按当前用户密钥加密后再落盘，配置文件被同步/备份/误分享
+# 时 token 不会跟着裸奔。0.61 是依赖树里已有的版本，不额外引入新的 windows-sys
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security_Cryptography",
+] }
 
