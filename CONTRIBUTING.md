@@ -143,6 +143,8 @@ cargo test --manifest-path src-tauri/Cargo.toml --locked --lib
 `clippy` and `rustfmt` are toolchain components; install them once with
 `rustup component add clippy rustfmt`.
 
+Release steps are in [docs/RELEASING.md](docs/RELEASING.md).
+
 For native or release-related changes, also run:
 
 ```bash
