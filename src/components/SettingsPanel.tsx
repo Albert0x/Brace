@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import ProfilePanel from "./ProfilePanel";
@@ -42,6 +42,8 @@ interface Props {
   onCursorBlink: (v: boolean) => void;
   commitTypes: string;
   onCommitTypes: (v: string) => void;
+  debugInput: boolean;
+  onDebugInput: (v: boolean) => void;
   onProfilesChanged: () => void;
 }
 
@@ -94,6 +96,21 @@ export default function SettingsPanel(props: Props) {
   useEffect(() => {
     getVersion().then(setAppVersion).catch(() => {});
   }, []);
+  // 输入诊断日志的大小/路径，用于在界面上显示"现在有多大、存在哪"
+  const [logInfo, setLogInfo] = useState<{
+    path: string;
+    size: number;
+    exists: boolean;
+  } | null>(null);
+  const refreshLogInfo = () => {
+    invoke<{ path: string; size: number; exists: boolean }>("debug_log_info")
+      .then(setLogInfo)
+      .catch(() => {});
+  };
+  useEffect(() => {
+    if (props.open) refreshLogInfo();
+  }, [props.open]);
+
   const [slStatus, setSlStatus] = useState<StatuslineStatus | null>(null);
   const [slBusy, setSlBusy] = useState(false);
   const [slError, setSlError] = useState("");
@@ -415,6 +432,49 @@ export default function SettingsPanel(props: Props) {
                   </span>
                 </div>
               </div>
+
+              <div className="settings-section-title">{t("debug.title")}</div>
+              <Row title={t("debug.enable")} desc={t("debug.enableDesc")}>
+                <Toggle
+                  on={props.debugInput}
+                  onChange={(v) => {
+                    props.onDebugInput(v);
+                    // 刚打开时文件还不存在，稍后再查一次才能显示出大小
+                    setTimeout(refreshLogInfo, 300);
+                  }}
+                />
+              </Row>
+              {props.debugInput && (
+                <p className="settings-hint">{t("debug.warning")}</p>
+              )}
+              {logInfo?.exists && (
+                <div className="debug-log-row">
+                  <span className="debug-log-path" title={logInfo.path}>
+                    {logInfo.path}
+                  </span>
+                  <span className="debug-log-size">
+                    {Math.max(1, Math.round(logInfo.size / 1024))} KB
+                  </span>
+                  <button
+                    className="about-btn"
+                    onClick={() =>
+                      revealItemInDir(logInfo.path).catch(console.error)
+                    }
+                  >
+                    {t("debug.reveal")}
+                  </button>
+                  <button
+                    className="about-btn"
+                    onClick={() =>
+                      invoke("clear_debug_log")
+                        .then(refreshLogInfo)
+                        .catch(console.error)
+                    }
+                  >
+                    {t("debug.clear")}
+                  </button>
+                </div>
+              )}
 
               <div className="about-actions">
                 <button

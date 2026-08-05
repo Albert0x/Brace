@@ -21,6 +21,7 @@ guide covers everything you'll use day to day.
 - [Themes & backgrounds](#themes--backgrounds)
 - [Settings](#settings)
 - [Auto-updates](#auto-updates)
+- [Troubleshooting input (input diagnostics)](#troubleshooting-input-input-diagnostics)
 
 ---
 
@@ -254,7 +255,8 @@ The settings panel (`⚙`) has four tabs:
 - **Themes**: theme selection and background image.
 - **Profiles**: environment variable sets — see
   [the section above](#profiles-switching-apis-and-proxies-the-highlight).
-- **About**: version info, check for updates, GitHub / issue links.
+- **About**: version info, check for updates, GitHub / issue links, and
+  **input diagnostics** (see the next section).
 
 ---
 
@@ -271,3 +273,31 @@ Brace ships signed auto-updates:
 ---
 
 Questions or ideas? Open a [GitHub Issue](https://github.com/Albert0x/Brace/issues).
+
+---
+
+## Troubleshooting input (input diagnostics)
+
+If you hit something odd with an IME — typing Chinese, moving the cursor into
+the middle of the line, and having earlier text duplicated, for instance — this
+switch records what happened so you can send it in.
+
+**Settings → About → Input diagnostics**, turn it on. Then:
+
+1. Reproduce the problem once, using the app normally.
+2. Come back to the same place and click **Show file**; `input-debug.log` next
+   to it is the recording.
+3. Attach that file to an [issue](https://github.com/Albert0x/Brace/issues).
+4. **Turn the switch back off and click "Clear log" when you're done.**
+
+> ⚠ **While it's on, every character you type in a terminal is written to that
+> file in plain text — passwords included.** Only turn it on to reproduce a
+> problem, and turn it off afterwards.
+
+It records keystrokes (including the IME's 229 keycode), composition
+start/update/end events, and the characters ultimately sent to the terminal,
+each with a millisecond timestamp. The final output alone can't tell you which
+step went wrong — the ordering is the point.
+
+The file lives at `%APPDATA%\com.brace.dev\input-debug.log` and stops growing
+at 4 MB.
