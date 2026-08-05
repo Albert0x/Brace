@@ -6,6 +6,7 @@ interface FilePreview {
   kind: string; // text | image | binary | toolarge
   content: string;
   size: number;
+  encoding: string; // text 时的原始编码，保存时原样写回
 }
 
 function fmtSize(n: number): string {
@@ -29,25 +30,46 @@ export default function PreviewPanel({
   const [draft, setDraft] = useState("");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     setPreview(null);
     setDirty(false);
+    setError("");
     invoke<FilePreview>("read_file", { path })
       .then((p) => {
         setPreview(p);
         if (p.kind === "text") setDraft(p.content);
       })
-      .catch(() => setPreview({ kind: "binary", content: "", size: 0 }));
+      .catch(() =>
+        setPreview({ kind: "binary", content: "", size: 0, encoding: "" }),
+      );
   }, [path]);
+
+  // 按读取时识别的编码写回，不把 GBK/UTF-16 文件静默转成 UTF-8。
+  // 保存失败必须让用户看见——原来这里是空 catch，磁盘满/只读/编码放不下都悄无声息
+  const doSave = () => {
+    setSaving(true);
+    setError("");
+    return invoke("write_file", {
+      path,
+      content: draft,
+      encoding: preview?.encoding ?? "",
+    })
+      .then(() => {
+        setDirty(false);
+        return true;
+      })
+      .catch((e) => {
+        setError(String(e));
+        return false;
+      })
+      .finally(() => setSaving(false));
+  };
 
   const save = () => {
     if (!dirty || saving) return;
-    setSaving(true);
-    invoke("write_file", { path, content: draft })
-      .then(() => setDirty(false))
-      .catch(() => {})
-      .finally(() => setSaving(false));
+    doSave();
   };
 
   const [confirmClose, setConfirmClose] = useState(false);
@@ -56,9 +78,10 @@ export default function PreviewPanel({
     else onClose();
   };
   const saveAndClose = () => {
-    invoke("write_file", { path, content: draft })
-      .then(() => onClose())
-      .catch(() => {});
+    doSave().then((ok) => {
+      if (ok) onClose();
+      else setConfirmClose(false); // 保存失败就别关，让错误留在面板上
+    });
   };
 
   return (
@@ -77,6 +100,11 @@ export default function PreviewPanel({
             {t("preview.save")}
           </button>
         )}
+        {/* UTF-8 是默认，不占地方；GBK / UTF-16 这类才提示，让用户知道会按原编码存回 */}
+        {preview?.kind === "text" && preview.encoding &&
+          preview.encoding !== "UTF-8" && (
+            <span className="preview-size">{preview.encoding}</span>
+          )}
         {preview && preview.size > 0 && (
           <span className="preview-size">{fmtSize(preview.size)}</span>
         )}
@@ -84,6 +112,7 @@ export default function PreviewPanel({
           ×
         </button>
       </div>
+      {error && <div className="preview-error">{error}</div>}
       <div className="preview-body">
         {!preview && <div className="preview-hint">…</div>}
         {preview?.kind === "text" && (

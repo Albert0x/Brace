@@ -3,11 +3,21 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import type { SearchAddon } from "@xterm/addon-search";
 import TerminalView from "./components/TerminalView";
-import FileTree, { type GitStatus } from "./components/FileTree";
+import FileTree from "./components/FileTree";
 import PreviewPanel from "./components/PreviewPanel";
 import GitPanel from "./components/GitPanel";
 import SettingsPanel from "./components/SettingsPanel";
-import { THEMES, LIGHT_THEME, applyTheme, type Theme } from "./themes";
+import {
+  DEFAULT_COMMIT_TYPES,
+  parseCommitTypes,
+} from "./components/GitPanel";
+import StatusBar from "./components/StatusBar";
+import { useTabs, type Tab } from "./hooks/useTabs";
+import { useUsage } from "./hooks/useUsage";
+import { useGitStatus } from "./hooks/useGitStatus";
+import { useProfiles } from "./hooks/useProfiles";
+import { useAppearance } from "./hooks/useAppearance";
+import { usePersistedBool, usePersistedString } from "./hooks/usePersisted";
 import { LangContext, createT, type Lang } from "./i18n";
 import "./App.css";
 
@@ -18,71 +28,6 @@ interface ShellInfo {
   shell_type: string;
 }
 
-interface Tab {
-  id: string;
-  initialCwd: string;
-  shellPath: string;
-  shellType: string;
-}
-
-interface UsageStats {
-  agent: string; // "claude" / "codex" / ""
-  model: string;
-  contextPct: number;
-  fiveHourPct: number;
-  fiveHourResetMs: number;
-  sevenDayPct: number;
-  sevenDayResetMs: number;
-  codexTotalTokens: number;
-  cacheAgeSec: number;
-  hasRateLimits: boolean;
-  hasData: boolean;
-}
-
-// 重置倒计时：4h 7m / 35m / 2d 3h / ✓
-function fmtCountdown(resetMs: number): string {
-  const diff = resetMs - Date.now();
-  if (diff <= 0) return "✓";
-  const h = Math.floor(diff / 3600000);
-  const m = Math.floor((diff % 3600000) / 60000);
-  if (h >= 24) return `${Math.floor(h / 24)}d ${h % 24}h`;
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
-}
-
-// 1234567 → "1.2M"；45678 → "46K"
-function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
-  if (n >= 1_000) return Math.round(n / 1_000) + "K";
-  return String(n);
-}
-
-// 单条用量计：标签 + 进度条 + % + 可选重置倒计时
-function UsageMeter({
-  label,
-  pct,
-  reset,
-}: {
-  label: string;
-  pct: number;
-  reset?: number;
-}) {
-  const p = Math.max(0, Math.min(100, Math.round(pct)));
-  const level = p >= 90 ? " hi" : p >= 70 ? " mid" : "";
-  return (
-    <span className="usage-meter">
-      <span className="usage-label">{label}</span>
-      <span className="usage-bar">
-        <i className={"usage-fill" + level} style={{ width: `${p}%` }} />
-      </span>
-      <span className="usage-pct">{p}%</span>
-      {reset != null && reset > 0 && (
-        <span className="usage-reset">{fmtCountdown(reset)}</span>
-      )}
-    </span>
-  );
-}
-
 function App() {
   // 纯浏览器（README 里说的 pnpm dev frontend-only）没有 __TAURI_INTERNALS__，
   // getCurrentWindow() 会直接抛错崩掉，得先判断环境
@@ -90,197 +35,97 @@ function App() {
   const appWindow = isTauri ? getCurrentWindow() : null;
 
   // 语言（默认英文）
-  const [lang, setLang] = useState<Lang>(
-    () => (localStorage.getItem("ht-lang") as Lang) || "en",
-  );
-  useEffect(() => {
-    localStorage.setItem("ht-lang", lang);
-  }, [lang]);
+  const [langRaw, setLang] = usePersistedString("ht-lang", "en");
+  const lang = langRaw as Lang;
   const t = useMemo(() => createT(lang), [lang]);
 
-  const [tabs, setTabs] = useState<Tab[]>(() => [
-    {
-      id: crypto.randomUUID(),
-      initialCwd: localStorage.getItem("brace-last-cwd") || "",
-      shellPath: "",
-      shellType: "powershell",
-    },
-  ]);
-  const [activeId, setActiveId] = useState<string>(() => tabs[0].id);
-
+  // ---- 环境探测 ----
   const [shells, setShells] = useState<ShellInfo[]>([]);
   const [shellMenu, setShellMenu] = useState(false);
+  const [osVersion, setOsVersion] = useState("");
+  const [homeCwd, setHomeCwd] = useState("");
   useEffect(() => {
     invoke<ShellInfo[]>("detect_shells").then(setShells).catch(() => {});
-  }, []);
-
-  // 状态栏显示的真实系统版本（别再假装每个人都是 Win11）
-  const [osVersion, setOsVersion] = useState("");
-  useEffect(() => {
+    // 状态栏显示的真实系统版本（别再假装每个人都是 Win11）
     invoke<string>("os_version").then(setOsVersion).catch(() => {});
+    invoke<string>("home_dir").then(setHomeCwd).catch(() => {});
   }, []);
   const defaultShell = shells.find((s) => s.id === "powershell") ?? shells[0];
 
-  // 主题
-  const [theme, setTheme] = useState<Theme>(
-    () => THEMES.find((x) => x.id === localStorage.getItem("ht-theme")) ?? THEMES[0],
+  // ---- 各领域状态，逐个交给专门的 hook ----
+  const {
+    tabs,
+    activeId,
+    setActiveId,
+    addTab: openTab,
+    removeTab,
+    switchTab,
+    cwdMap,
+    handleCwd,
+    activeCwd,
+  } = useTabs(homeCwd);
+
+  const {
+    theme,
+    setTheme,
+    effectiveTheme,
+    appearance,
+    setAppearance,
+    uiZoom,
+    setUiZoom,
+    fontSize,
+    setFontSize,
+    bgImage,
+    pickBg,
+    overlay,
+    setOverlay,
+  } = useAppearance();
+
+  // 提交类型列表可自定义：默认是 Conventional Commits 通用集，
+  // 团队有自己一套词表的直接改这里，不用改代码
+  const [commitTypesRaw, setCommitTypesRaw] = usePersistedString(
+    "ht-commit-types",
+    DEFAULT_COMMIT_TYPES,
   );
+  const commitTypes = useMemo(
+    () => parseCommitTypes(commitTypesRaw),
+    [commitTypesRaw],
+  );
+
+  const [showHidden, setShowHidden] = usePersistedBool("ht-hidden", false);
+  const [gitDeco, setGitDeco] = usePersistedBool("ht-gitdeco", false);
+  const [webgl, setWebgl] = usePersistedBool("ht-webgl", true);
+  const [cursorBlink, setCursorBlink] = usePersistedBool("ht-cursor", true);
+
+  const { gitStatus, refresh: refreshGit } = useGitStatus(activeCwd);
+  // 这两个整块传给 StatusBar，不在这里解构——它们本来就是各自内聚的一块状态
+  const usageState = useUsage(activeId);
+  const profiles = useProfiles();
+
   const [settingsOpen, setSettingsOpen] = useState(false);
-  useEffect(() => {
-    localStorage.setItem("ht-theme", theme.id);
-  }, [theme]);
+  const [gitPanelOpen, setGitPanelOpen] = useState(false);
+  // 文件预览：单击文件在侧边打开
+  const [preview, setPreview] = useState<{ path: string; name: string } | null>(
+    null,
+  );
+  const openFile = (path: string, name: string) => setPreview({ path, name });
 
-  // 背景图 + 遮罩
-  const [bgImage, setBgImage] = useState<string>(
-    () => localStorage.getItem("ht-bg") ?? "",
+  // 新标签继承当前目录，没指定 shell 就用默认那个
+  const addTab = useCallback(
+    (shell?: ShellInfo) => {
+      const s = shell ?? defaultShell;
+      openTab({
+        cwd: activeCwd,
+        shellPath: s?.path ?? "",
+        shellType: s?.shell_type ?? "powershell",
+      });
+    },
+    [openTab, defaultShell, activeCwd],
   );
-  const [overlay, setOverlay] = useState<number>(
-    () => Number(localStorage.getItem("ht-overlay")) || 0.5,
-  );
-  useEffect(() => {
-    try {
-      if (bgImage) localStorage.setItem("ht-bg", bgImage);
-      else localStorage.removeItem("ht-bg");
-    } catch {
-      /* 图太大超配额时仅本会话生效 */
-    }
-  }, [bgImage]);
-  useEffect(() => {
-    localStorage.setItem("ht-overlay", String(overlay));
-  }, [overlay]);
 
-  // General 设置
-  const [appearance, setAppearance] = useState(
-    () => localStorage.getItem("ht-appearance") ?? "dark",
-  );
-  const [uiZoom, setUiZoom] = useState(
-    () => Number(localStorage.getItem("ht-zoom")) || 1,
-  );
-  const [showHidden, setShowHidden] = useState(
-    () => localStorage.getItem("ht-hidden") === "1",
-  );
-  const [gitDeco, setGitDeco] = useState(
-    () => localStorage.getItem("ht-gitdeco") === "1",
-  );
-  const [webgl, setWebgl] = useState(
-    () => localStorage.getItem("ht-webgl") !== "0",
-  );
-  const [cursorBlink, setCursorBlink] = useState(
-    () => localStorage.getItem("ht-cursor") !== "0",
-  );
-  useEffect(() => {
-    localStorage.setItem("ht-appearance", appearance);
-  }, [appearance]);
-  useEffect(() => {
-    localStorage.setItem("ht-zoom", String(uiZoom));
-    (document.documentElement.style as any).zoom = String(uiZoom);
-    requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
-  }, [uiZoom]);
-  useEffect(() => {
-    localStorage.setItem("ht-hidden", showHidden ? "1" : "0");
-  }, [showHidden]);
-  useEffect(() => {
-    localStorage.setItem("ht-gitdeco", gitDeco ? "1" : "0");
-  }, [gitDeco]);
-  useEffect(() => {
-    localStorage.setItem("ht-webgl", webgl ? "1" : "0");
-  }, [webgl]);
-  useEffect(() => {
-    localStorage.setItem("ht-cursor", cursorBlink ? "1" : "0");
-  }, [cursorBlink]);
-
-  // 跟随系统明暗
-  const [systemDark, setSystemDark] = useState(
-    () => window.matchMedia("(prefers-color-scheme: dark)").matches,
-  );
-  useEffect(() => {
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const h = (e: MediaQueryListEvent) => setSystemDark(e.matches);
-    mq.addEventListener("change", h);
-    return () => mq.removeEventListener("change", h);
-  }, []);
-  const effectiveTheme =
-    appearance === "light"
-      ? LIGHT_THEME
-      : appearance === "system"
-        ? systemDark
-          ? theme
-          : LIGHT_THEME
-        : theme;
-  useEffect(() => {
-    applyTheme(effectiveTheme);
-  }, [effectiveTheme]);
-
-  // 字体大小
-  const [fontSize, setFontSize] = useState<number>(
-    () => Number(localStorage.getItem("ht-fontsize")) || 14,
-  );
-  useEffect(() => {
-    localStorage.setItem("ht-fontsize", String(fontSize));
-  }, [fontSize]);
-
-  // 文件树根目录
-  const [homeCwd, setHomeCwd] = useState("");
-  const [cwdMap, setCwdMap] = useState<Record<string, string>>({});
-  useEffect(() => {
-    invoke<string>("home_dir").then(setHomeCwd).catch(() => {});
-  }, []);
-  const handleCwd = useCallback((sid: string, path: string) => {
-    setCwdMap((m) => (m[sid] === path ? m : { ...m, [sid]: path }));
-  }, []);
-  const activeCwd = cwdMap[activeId] ?? homeCwd;
-  // 记住当前目录，下次启动终端直接定位到这里（而不是每次跑回 C 盘）
-  useEffect(() => {
-    if (activeCwd) localStorage.setItem("brace-last-cwd", activeCwd);
-  }, [activeCwd]);
-
-  // Git 装饰：按当前目录拉 git status（分支 + 文件状态），随目录变化 + 定时刷新。
-  // --ignored 在大仓库较贵，间隔拉长到 20s；手动刷新走 FileTree 的 ⟳ 按钮
-  const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
-  useEffect(() => {
-    let alive = true;
-    const poll = () =>
-      invoke<GitStatus>("git_status", { cwd: activeCwd })
-        .then((g) => alive && setGitStatus(g.isRepo ? g : null))
-        .catch(() => {});
-    poll();
-    const id = setInterval(poll, 20000);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
-  }, [activeCwd]);
-
-  // Claude 用量：按当前标签轮询后端（含进程检测 + 读官方缓存），每 10s 一次
-  const [usage, setUsage] = useState<UsageStats | null>(null);
-  useEffect(() => {
-    let alive = true;
-    const poll = () =>
-      invoke<UsageStats>("usage_stats", { sessionId: activeId })
-        .then((u) => alive && setUsage(u))
-        .catch(() => {});
-    poll();
-    const id = setInterval(poll, 10000);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
-  }, [activeId]);
-
-  // 引导式默认开：检测到跑 claude 但用量没开时，状态栏提示一次；忽略后记住不再提示
-  const [usagePromptOff, setUsagePromptOff] = useState(
-    () => localStorage.getItem("brace-usage-prompt") === "off",
-  );
-  const enableUsage = () => {
-    invoke("configure_statusline", { enable: true, force: false })
-      .then(() =>
-        invoke<UsageStats>("usage_stats", { sessionId: activeId }).then(setUsage),
-      )
-      .catch(() => {});
-  };
-  const dismissUsagePrompt = () => {
-    setUsagePromptOff(true);
-    localStorage.setItem("brace-usage-prompt", "off");
+  const closeTab = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    removeTab(id);
   };
 
   const tabLabel = (tab: Tab) => {
@@ -298,39 +143,38 @@ function App() {
   const bashQuote = (path: string) => `'${path.replace(/'/g, "'\\''")}'`;
   const cmdQuote = (path: string) => `"${path}"`;
 
-  const openDirInTerminal = (path: string) => {
+  // 往当前标签发一条命令，按它用的 shell 选语法
+  const runInActiveShell = (
+    build: (q: (p: string) => string, shellType: string) => string,
+  ) => {
     const st = tabs.find((x) => x.id === activeId)?.shellType ?? "powershell";
-    const cmd =
-      st === "cmd"
-        ? `cd /d ${cmdQuote(path)}`
-        : st === "bash"
-          ? `cd ${bashQuote(path)}`
-          : `Set-Location -LiteralPath ${psQuote(path)}`;
-    invoke("pty_write", { id: activeId, data: cmd + "\r" }).catch(console.error);
+    const quote =
+      st === "cmd" ? cmdQuote : st === "bash" ? bashQuote : psQuote;
+    invoke("pty_write", { id: activeId, data: build(quote, st) + "\r" }).catch(
+      console.error,
+    );
   };
 
-  // 文件预览：单击文件在侧边打开；右键「在终端显示」用当前 shell 打印内容
-  const [preview, setPreview] = useState<{ path: string; name: string } | null>(null);
-  const openFile = (path: string, name: string) => setPreview({ path, name });
-  // Git 提交面板：状态栏 ⑂ 徽标点开；提交后立刻刷新一次 git status
-  const [gitPanelOpen, setGitPanelOpen] = useState(false);
-  const refreshGit = useCallback(() => {
-    invoke<GitStatus>("git_status", { cwd: activeCwd })
-      .then((g) => setGitStatus(g.isRepo ? g : null))
-      .catch(() => {});
-  }, [activeCwd]);
-  const showInTerminal = (path: string) => {
-    const st = tabs.find((x) => x.id === activeId)?.shellType ?? "powershell";
-    const cmd =
+  const openDirInTerminal = (path: string) =>
+    runInActiveShell((q, st) =>
       st === "cmd"
-        ? `type ${cmdQuote(path)}`
+        ? `cd /d ${q(path)}`
         : st === "bash"
-          ? `cat ${bashQuote(path)}`
-          : `Get-Content -LiteralPath ${psQuote(path)}`;
-    invoke("pty_write", { id: activeId, data: cmd + "\r" }).catch(console.error);
-  };
+          ? `cd ${q(path)}`
+          : `Set-Location -LiteralPath ${q(path)}`,
+    );
 
-  // 搜索
+  // 右键「在终端显示」：用当前 shell 打印文件内容
+  const showInTerminal = (path: string) =>
+    runInActiveShell((q, st) =>
+      st === "cmd"
+        ? `type ${q(path)}`
+        : st === "bash"
+          ? `cat ${q(path)}`
+          : `Get-Content -LiteralPath ${q(path)}`,
+    );
+
+  // ---- 搜索 ----
   const searchAddons = useRef<Record<string, SearchAddon>>({});
   const registerSearch = useCallback((id: string, a: SearchAddon) => {
     searchAddons.current[id] = a;
@@ -347,41 +191,6 @@ function App() {
     else a.findPrevious(q);
   };
 
-  const addTab = (shell?: ShellInfo) => {
-    const s = shell ?? defaultShell;
-    const id = crypto.randomUUID();
-    setTabs((tb) => [
-      ...tb,
-      {
-        id,
-        initialCwd: activeCwd,
-        shellPath: s?.path ?? "",
-        shellType: s?.shell_type ?? "powershell",
-      },
-    ]);
-    setActiveId(id);
-  };
-
-  const removeTab = (id: string) => {
-    const idx = tabs.findIndex((x) => x.id === id);
-    const next = tabs.filter((x) => x.id !== id);
-    setTabs(next);
-    if (id === activeId && next.length) {
-      setActiveId(next[Math.max(0, idx - 1)].id);
-    }
-  };
-
-  const closeTab = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    removeTab(id);
-  };
-
-  const switchTab = (dir: number) => {
-    if (tabs.length < 2) return;
-    const idx = tabs.findIndex((x) => x.id === activeId);
-    setActiveId(tabs[(idx + dir + tabs.length) % tabs.length].id);
-  };
-
   useEffect(() => {
     if (!shellMenu) return;
     const close = () => setShellMenu(false);
@@ -389,43 +198,42 @@ function App() {
     return () => window.removeEventListener("click", close);
   }, [shellMenu]);
 
+  // 全局快捷键。removeTab / switchTab 由 useTabs 保证引用稳定且内部读的是最新标签列表，
+  // 所以这里不用再把 tabs 塞进依赖数组——那正是之前"关掉的标签被 Ctrl+W 复活"的成因
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.ctrlKey) return;
-      if (!e.shiftKey && e.code === "KeyT") {
+      const stop = () => {
         e.preventDefault();
         e.stopPropagation();
+      };
+      if (!e.shiftKey && e.code === "KeyT") {
+        stop();
         addTab();
       } else if (!e.shiftKey && e.code === "KeyW") {
-        e.preventDefault();
-        e.stopPropagation();
+        stop();
         removeTab(activeId);
       } else if (e.code === "Tab") {
-        e.preventDefault();
-        e.stopPropagation();
+        stop();
         switchTab(e.shiftKey ? -1 : 1);
       } else if (!e.shiftKey && e.code === "KeyF") {
-        e.preventDefault();
-        e.stopPropagation();
+        stop();
         searchInputRef.current?.focus();
         searchInputRef.current?.select();
       } else if (e.code === "Equal") {
-        e.preventDefault();
-        e.stopPropagation();
+        stop();
         setFontSize((f) => Math.min(28, f + 1));
       } else if (e.code === "Minus") {
-        e.preventDefault();
-        e.stopPropagation();
+        stop();
         setFontSize((f) => Math.max(8, f - 1));
       } else if (e.code === "Digit0") {
-        e.preventDefault();
-        e.stopPropagation();
+        stop();
         setFontSize(14);
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [activeId, cwdMap, homeCwd, shells]);
+  }, [addTab, removeTab, switchTab, activeId, setFontSize]);
 
   return (
     <LangContext.Provider value={{ lang, setLang, t }}>
@@ -585,69 +393,16 @@ function App() {
           </main>
         </div>
 
-        <footer className="statusbar">
-          <div className="status-left">
-            <span>◧ Files</span>
-            <span
-              className={"status-git" + (gitStatus?.isRepo ? " clickable" : "")}
-              onClick={() => gitStatus?.isRepo && setGitPanelOpen(true)}
-              title={gitStatus?.isRepo ? t("git.title") : ""}
-            >
-              ⑂ {gitStatus?.branch || "—"}
-              {gitStatus && gitStatus.changedCount > 0
-                ? ` ±${gitStatus.changedCount}`
-                : ""}
-            </span>
-            {usage && usage.agent && usage.hasData && (
-              <div className="usage">
-                {usage.model && <span className="usage-model">{usage.model}</span>}
-                <UsageMeter label={t("usage.context")} pct={usage.contextPct} />
-                {usage.agent === "claude" && usage.hasRateLimits && (
-                  <>
-                    <UsageMeter
-                      label={t("usage.win5h")}
-                      pct={usage.fiveHourPct}
-                      reset={usage.fiveHourResetMs}
-                    />
-                    <UsageMeter
-                      label={t("usage.win7d")}
-                      pct={usage.sevenDayPct}
-                      reset={usage.sevenDayResetMs}
-                    />
-                  </>
-                )}
-                {usage.agent === "codex" && usage.codexTotalTokens > 0 && (
-                  <span className="usage-win">{fmtTokens(usage.codexTotalTokens)} tok</span>
-                )}
-              </div>
-            )}
-            {usage &&
-              usage.agent === "claude" &&
-              !usage.hasData &&
-              !usagePromptOff && (
-                <div className="usage-prompt">
-                  <span>⚡ {t("usage.prompt")}</span>
-                  <button className="usage-prompt-btn" onClick={enableUsage}>
-                    {t("usage.promptEnable")}
-                  </button>
-                  <button
-                    className="usage-prompt-x"
-                    onClick={dismissUsagePrompt}
-                    title={t("usage.promptDismiss")}
-                  >
-                    ✕
-                  </button>
-                </div>
-              )}
-          </div>
-          <div className="status-right">
-            <span>{fontSize}px</span>
-            <span>{t("status.terminals", { n: tabs.length })}</span>
-            <span>{theme.name}</span>
-            <span>UTF-8</span>
-            {osVersion && <span>{osVersion}</span>}
-          </div>
-        </footer>
+        <StatusBar
+          gitStatus={gitStatus}
+          onOpenGit={() => setGitPanelOpen(true)}
+          profiles={profiles}
+          usage={usageState}
+          fontSize={fontSize}
+          tabCount={tabs.length}
+          themeName={theme.name}
+          osVersion={osVersion}
+        />
       </div>
 
       <SettingsPanel
@@ -657,8 +412,8 @@ function App() {
         onSelectTheme={setTheme}
         hasBg={!!bgImage}
         overlay={overlay}
-        onPickBg={setBgImage}
-        onClearBg={() => setBgImage("")}
+        onPickBg={pickBg}
+        onClearBg={() => pickBg("")}
         onOverlay={setOverlay}
         appearance={appearance}
         onAppearance={setAppearance}
@@ -672,12 +427,16 @@ function App() {
         onWebgl={setWebgl}
         cursorBlink={cursorBlink}
         onCursorBlink={setCursorBlink}
+        commitTypes={commitTypesRaw}
+        onCommitTypes={setCommitTypesRaw}
+        onProfilesChanged={profiles.refresh}
       />
 
       {gitPanelOpen && (
         <GitPanel
           cwd={activeCwd}
           gitStatus={gitStatus}
+          commitTypes={commitTypes}
           onClose={() => setGitPanelOpen(false)}
           onDone={refreshGit}
         />

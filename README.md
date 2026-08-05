@@ -9,18 +9,24 @@ selection, a working-directory-aware file tree, terminal search, themes, and
 custom backgrounds in a lightweight native window.
 
 > [!IMPORTANT]
-> Windows is the currently implemented platform. The project compiles on
-> macOS, but macOS shell discovery, working-directory reporting, keyboard
-> shortcuts, and native window behavior are not complete yet.
+> **Brace is a Windows application.** Shell discovery, working-directory
+> reporting, secret storage, and window chrome are all built against Windows
+> APIs. macOS and Linux are not supported and not currently planned — the code
+> may still compile there, but treat that as an accident, not a promise.
 
 ## Features
 
 - Multiple terminal tabs backed by native pseudo terminals
 - PowerShell, Command Prompt, and Git Bash discovery on Windows
-- File tree synchronized with the active PowerShell working directory
+- File tree synchronized with the active PowerShell working directory, with
+  auto-refresh on filesystem changes
+- Environment variable profiles for switching API endpoints and proxies per
+  terminal, with secrets encrypted at rest via Windows DPAPI
+- Git decorations in the tree, plus a commit panel with per-file selection and diffs
 - Search, clickable links, copy and paste, and configurable font size
+- Session restore for the previous tab group (shell + directory per tab)
 - Built-in themes and optional custom backgrounds
-- Tauri desktop packaging for Windows and macOS
+- Tauri desktop packaging for Windows
 
 ## Installation
 
@@ -100,18 +106,19 @@ src-tauri/
 
 ## Platform Status
 
-| Capability | Windows | macOS |
-| --- | --- | --- |
-| Build | Supported | Compiles |
-| Shell discovery | PowerShell, CMD, Git Bash | Not implemented |
-| Default terminal startup | Supported | Not implemented |
-| Working-directory sync | PowerShell | Not implemented |
-| Native shortcuts | Ctrl-based | Command mapping not implemented |
-| Native window styling | Acrylic | Not implemented |
+Windows only. What "supported" actually covers:
 
-macOS contributors should not duplicate Windows-specific logic. Shell
-selection, quoting, shortcuts, status text, and window behavior must be
-implemented behind explicit platform-aware boundaries.
+| Capability | Status |
+| --- | --- |
+| Windows version | 10 and 11 (acrylic window chrome is 11-only) |
+| Shell discovery | PowerShell 5.1, PowerShell 7, CMD, Git Bash |
+| Working-directory sync | All detected shells, via OSC 9;9 prompt injection |
+| Secret storage | DPAPI, scoped to the current Windows user account |
+| Native shortcuts | Ctrl-based |
+
+macOS and Linux are out of scope. Platform-specific code sits behind
+`#[cfg(windows)]` boundaries so a future port would have seams to work with,
+but no port is planned.
 
 ## Troubleshooting
 

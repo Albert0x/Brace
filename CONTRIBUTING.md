@@ -1,15 +1,16 @@
 # Contributing to Brace
 
 This document defines the minimum engineering standard for every contributor.
-Platform-specific work must preserve behavior on platforms the contributor
-cannot test and must state any unverified behavior explicitly.
+Brace is a Windows-only application (see [Platform Scope](#7-platform-scope)).
+Work that touches shell behavior must state which shells it was verified
+against, and must state any unverified behavior explicitly.
 
 ## 1. Before Starting
 
 1. Create or select an issue with a clear problem statement and acceptance
    criteria.
 2. Confirm whether the change affects the frontend, native backend, packaging,
-   or more than one platform.
+   or more than one shell.
 3. Keep the change focused. Do not combine feature work, dependency upgrades,
    formatting sweeps, and unrelated refactoring in one pull request.
 
@@ -30,9 +31,9 @@ Use lowercase kebab-case. Do not develop directly on `main`.
 Use Conventional Commit-style messages:
 
 ```text
-feat(mac): detect the user's default shell
+feat(profiles): inject environment variables into new terminals
 fix(pty): terminate child processes when closing a tab
-docs: document macOS prerequisites
+docs: document the Git Bash quoting rules
 ```
 
 Allowed common types are `feat`, `fix`, `refactor`, `test`, `docs`, `build`,
@@ -48,14 +49,15 @@ Every pull request must include:
 
 - The problem and why it needs to be solved
 - The implementation approach and important trade-offs
-- A list of affected platforms
+- Which shells (PowerShell 5.1 / 7, CMD, Git Bash) the change was verified on
 - Commands executed and their results
 - Manual verification steps for terminal behavior
 - Screenshots for visible UI changes
 - Known limitations and behavior that was not verified
 
-At least one maintainer review is required. Native behavior should be reviewed
-by someone familiar with the affected platform.
+At least one maintainer review is required. Changes to PTY or shell handling
+should be reviewed by someone who has actually run them against the affected
+shells.
 
 ## 5. Frontend Rules
 
@@ -78,24 +80,33 @@ by someone familiar with the affected platform.
   explanation in the pull request.
 - Do not disable security controls merely to unblock development.
 
-## 7. Cross-Platform Rules
+## 7. Platform Scope
 
-Never assume:
+**Brace targets Windows only.** Shell discovery, cwd reporting, secret storage
+(DPAPI), process-tree termination (`taskkill /T`), acrylic window chrome, and
+system-proxy lookup are all written against Windows APIs. macOS and Linux are
+not supported and not currently planned.
 
-- A specific executable such as `powershell.exe`, `/bin/zsh`, or `/bin/bash`
-- Windows path separators or drive letters
-- `$HOME` or `%USERPROFILE%` exists
-- `Ctrl` is the native shortcut modifier on every platform
-- Shell quoting syntax is shared by PowerShell, CMD, zsh, bash, and fish
-- A transparent undecorated window behaves consistently on every platform
+Writing Windows-specific code is therefore expected, not a smell. Two rules
+still apply:
 
-Platform behavior must be selected by an explicit Rust target boundary or a
-tested runtime abstraction. Keep shared behavior shared and isolate only the
-parts that truly differ.
+- Guard platform-specific code with `#[cfg(windows)]` and give the other branch
+  something honest — return `None`, return an empty result, or say plainly in a
+  comment that it is unimplemented. Do not fake success on a platform where the
+  feature does not work. `dpapi()` returning `None` off Windows is the pattern
+  to follow.
+- Do not delete a working `cfg` boundary just because only one branch runs
+  today. They are the seams a future port would use, and they cost nothing.
+
+**Windows is not one platform for shells.** PowerShell 5.1, PowerShell 7, CMD,
+and Git Bash differ in quoting syntax, prompt injection, path format, and
+default encoding. Anything touching shell startup, quoting, or cwd reporting
+must be verified against all four — that is where the real portability work in
+this codebase lives.
 
 Changes affecting PTY lifecycle, shell startup, quoting, cwd reporting,
-clipboard behavior, keyboard shortcuts, window chrome, packaging, signing, or
-filesystem paths must list Windows and macOS verification separately.
+clipboard behavior, keyboard shortcuts, window chrome, packaging, or signing
+must state which shells and which Windows versions were verified.
 
 ## 8. Security Rules
 
@@ -119,12 +130,18 @@ filesystem paths must list Windows and macOS verification separately.
 
 ## 10. Required Validation
 
-Run at minimum:
+CI (`.github/workflows/ci.yml`) runs these on every pull request. Run them
+locally first — a red CI is slower feedback than a red terminal:
 
 ```bash
 pnpm build
-cargo check --locked --manifest-path src-tauri/Cargo.toml
+cargo fmt --manifest-path src-tauri/Cargo.toml --check
+cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings
+cargo test --manifest-path src-tauri/Cargo.toml --locked --lib
 ```
+
+`clippy` and `rustfmt` are toolchain components; install them once with
+`rustup component add clippy rustfmt`.
 
 For native or release-related changes, also run:
 
@@ -133,8 +150,11 @@ pnpm tauri build
 ```
 
 Tests must cover the happy path, edge cases, invalid input, and cleanup or
-failure behavior where applicable. Until automated tests exist, document
-repeatable manual steps and their observed results.
+failure behavior where applicable. Pure logic (encoding detection, stream
+decoding, status parsing, secret sealing) belongs in `#[cfg(test)]` unit tests.
+Behavior that needs a live PTY, a real window, or the Windows credential store
+cannot be covered there — document repeatable manual steps and their observed
+results instead, and say plainly which parts were verified that way.
 
 Build success is not proof that PTY behavior works. Manually verify creating,
 switching, resizing, and closing tabs; entering input; rendering output; cwd
@@ -146,7 +166,7 @@ A change is complete only when:
 
 - Acceptance criteria are met
 - Relevant checks pass
-- Supported-platform behavior is verified
+- Behavior is verified on the shells the change can affect
 - Unverified behavior is disclosed
 - Documentation is updated when setup or behavior changes
 - The working tree contains no unrelated or generated files

@@ -8,17 +8,21 @@ Brace 是一款基于 Tauri、React、TypeScript、Rust 和 xterm.js
 选择、跟随工作目录的文件树、终端搜索、主题和自定义背景。
 
 > [!IMPORTANT]
-> Windows 是当前已经实现的平台。项目可以在 macOS 上编译，但 macOS
-> 的 Shell 检测、工作目录上报、快捷键和原生窗口行为仍未完成。
+> **Brace 是一个 Windows 应用。** Shell 检测、工作目录上报、密钥存储、窗口装饰
+> 全部是按 Windows API 写的。macOS 和 Linux 不支持，目前也没有计划——代码在那边
+> 也许还能编译过，但那是巧合，不是承诺。
 
 ## 功能
 
 - 使用原生伪终端实现多终端标签
 - 在 Windows 上检测 PowerShell、命令提示符和 Git Bash
-- 文件树跟随当前 PowerShell 工作目录
+- 文件树跟随当前 PowerShell 工作目录，文件变化自动刷新
+- 环境变量配置组，一键切换中转 API 端点与代理，密钥经 Windows DPAPI 加密后落盘
+- 文件树 Git 装饰，提交面板支持按文件勾选与 diff 查看
 - 支持搜索、链接跳转、复制粘贴和字体大小设置
+- 会话恢复：重开自动还原上次的标签组（每个标签的 shell 与目录）
 - 内置主题和自定义背景
-- 支持 Tauri 的 Windows 与 macOS 桌面打包
+- 支持 Tauri 的 Windows 桌面打包
 
 ## 安装
 
@@ -97,17 +101,18 @@ src-tauri/
 
 ## 平台支持情况
 
-| 能力 | Windows | macOS |
-| --- | --- | --- |
-| 构建 | 支持 | 可以编译 |
-| Shell 检测 | PowerShell、CMD、Git Bash | 未实现 |
-| 默认终端启动 | 支持 | 未实现 |
-| 工作目录同步 | PowerShell | 未实现 |
-| 原生快捷键 | 基于 Ctrl | Command 映射未实现 |
-| 原生窗口样式 | Acrylic | 未实现 |
+仅支持 Windows。「支持」具体覆盖到什么程度：
 
-macOS 维护者不应复制 Windows 专用逻辑。Shell 选择、命令引用、快捷键、状态文本
-和窗口行为必须通过明确的平台边界实现。
+| 能力 | 状态 |
+| --- | --- |
+| Windows 版本 | 10 和 11（亚克力窗口效果仅 11 有） |
+| Shell 检测 | PowerShell 5.1、PowerShell 7、CMD、Git Bash |
+| 工作目录同步 | 所有检测到的 Shell，靠 OSC 9;9 prompt 注入 |
+| 密钥存储 | DPAPI，绑定当前 Windows 用户账户 |
+| 原生快捷键 | 基于 Ctrl |
+
+macOS 和 Linux 不在范围内。平台相关代码都放在 `#[cfg(windows)]` 边界后面，
+将来真要移植还有接缝可用，但目前没有计划。
 
 ## 常见问题
 

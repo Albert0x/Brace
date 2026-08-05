@@ -14,7 +14,9 @@ guide covers everything you'll use day to day.
 - [Interface overview](#interface-overview)
 - [Tabs & shells](#tabs--shells)
 - [File tree sync](#file-tree-sync)
+- [Git commit panel](#git-commit-panel)
 - [AI usage display (the highlight)](#ai-usage-display-the-highlight)
+- [Profiles: switching APIs and proxies (the highlight)](#profiles-switching-apis-and-proxies-the-highlight)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Themes & backgrounds](#themes--backgrounds)
 - [Settings](#settings)
@@ -55,6 +57,9 @@ Brace uses a three-column layout plus a status bar:
 - **Close tab**: click `×` on the tab or press `Ctrl+W`.
 - **Switch tabs**: `Ctrl+Tab` / `Ctrl+Shift+Tab`.
 - Tab titles show the current directory name.
+- **Session restore**: close Brace and reopen it, and your tab group comes back —
+  each tab's shell and directory, plus which one was selected. Note that these
+  are *fresh* shell processes; a command left running is not resumed.
 
 ---
 
@@ -64,15 +69,70 @@ The file tree and terminal stay in **two-way sync**:
 
 - `cd` in the terminal and the tree re-roots to that folder.
 - **Double-click a folder** in the tree and the terminal `cd`s there.
-- Click `⟳` to refresh.
-- To show hidden files (`.env`, `.gitignore`): Settings → General → **Show
-  hidden files**.
+- **Auto-refresh**: `mkdir`, `rm`, or a branch switch in the terminal updates
+  the tree on its own.
+- Click `⟳` to refresh by hand — that re-reads the root *and* every expanded
+  subfolder.
+- **Create, rename, delete**: the right-click menu covers new file / new folder,
+  rename, delete, copy path, and reveal in Explorer. Right-clicking empty space
+  targets the root folder. The `＋` in the header is a shortcut for a new file
+  at the root.
+- `.gitignore` and `.env` **show by default** — on Windows those aren't hidden
+  files. Things Windows actually marks hidden (the `.git` folder, for one) stay
+  out of sight until you turn on Settings → General → **Show hidden files**.
 
 > How it works: Brace injects a prompt into each shell that reports the current
 > directory via the OSC 9;9 escape sequence, with per-shell syntax for
 > PowerShell / CMD / Git Bash.
 
+> **Delete goes to the Recycle Bin**, not gone for good, so a misclick is
+> recoverable. Brace deliberately offers no permanent delete — the terminal is
+> right there if you mean it.
+
+> Watching covers **the root plus every expanded folder**, each one level deep,
+> never recursive. The working directory is often your home folder, and watching
+> that recursively would pull in every AppData, OneDrive, and browser-cache
+> write — high volume, no value. Collapsed folders aren't watched; you can't see
+> them anyway.
+
 ---
+
+## Git commit panel
+
+The `⑂ branch ±N` badge in the status bar opens it. It does exactly one thing:
+**commit the changes you have right now**.
+
+- **Check the files to include.** Everything is checked by default; uncheck what
+  you don't want in this commit.
+- **Click a filename to expand its diff** — green for added lines, red for
+  removed. An untracked file is shown as entirely new.
+- **Pick a type** (optional): the defaults are the standard Conventional
+  Commits set (`feat` `fix` `docs` `style` `refactor` `perf` `test` `build` `ci`
+  `chore` `revert`), with an optional scope beside it. The result is composed as
+  `feat(git): your description`, previewed on the line below so you see exactly
+  what lands in git. Click the same type again to clear it — a throwaway commit
+  shouldn't be forced into the convention.
+- Your team uses a different vocabulary? **Settings → General → Git → Commit
+  types** takes a comma-separated list; leave it empty to restore the
+  defaults.
+- Write a message and hit **Commit**, or press `Ctrl+Enter`. **Commit & Push**
+  does both.
+- Failures (no `user.name`, rejected push, no upstream…) show git's own wording,
+  unedited.
+
+> **Only the files you checked get committed.** If you ran `git add` on
+> something else in the terminal earlier, it will not be swept into this commit —
+> the panel scopes the commit to the selected paths. That differs from a plain
+> `git commit`, which commits everything staged.
+
+> **No line-by-line staging.** To commit part of a file, use `git add -p` in the
+> terminal. Rebuilding VS Code's source control view inside a terminal sidebar
+> isn't what this panel is for.
+
+The file tree uses the same status colors: yellow `M` modified, green `A`/`?`
+added or untracked, red `D` deleted, blue `R` renamed, plus a small yellow dot on
+folders containing changes. Ignored files are dimmed. Turn the whole thing off in
+Settings → General → **Git decorations**.
 
 ## AI usage display (the highlight)
 
@@ -117,6 +177,43 @@ Windows, and inserts an `[Image #1]` placeholder.
 
 ---
 
+## Profiles: switching APIs and proxies (the highlight)
+
+A profile is a named set of environment variables. Whichever profile is active gets
+injected into **terminals you open from then on**. The usual reasons to want this are
+switching between Claude API relays, or putting a proxy on your terminals only.
+
+### Creating one
+
+Settings `⚙` → **Profiles** → `＋ New profile`:
+
+1. Name it — say "Work relay".
+2. Hit **Templates → Claude Code** to prefill `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and `ANTHROPIC_MODEL`.
+3. Fill in the values and press **Save**.
+
+There are also **Codex / OpenAI** and **Proxy** templates. **Fill from system proxy**
+reads whatever Windows is currently using (your Clash setup, for instance) straight into
+`HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY`, so you don't have to dig through the registry.
+
+### Switching
+
+The `🔑` badge in the status bar shows the active profile. Click it to switch, or pick
+**Off** to inject nothing.
+
+> **New tabs only.** A running process cannot have its environment changed — that's an
+> operating system rule, not a shortcut taken here. After switching, open a fresh tab
+> with `Ctrl+T`.
+
+### How secrets are stored
+
+- The 🔒 on a row marks it as a secret. Names containing `TOKEN`, `KEY`, `SECRET`, or `PASSWORD` are locked automatically; you can toggle it either way.
+- Locked values are encrypted with **Windows DPAPI under your user account** before hitting disk, so a config file that gets synced to cloud storage or shared by accident is not readable by anyone else.
+- The file lives at `%APPDATA%\com.brace.dev\profiles.json`. Because encryption is tied to your Windows account, **copying it to another machine will not carry the secrets over** — you'll re-enter them there.
+- Plaintext secrets exist only in memory at write and inject time. The UI never echoes them back, it only shows "saved" or "not set".
+- Renaming a variable that already holds a secret detaches it from the stored value, so the field flips back to "not set" to prompt you to re-enter it.
+
+---
+
 ## Keyboard shortcuts
 
 | Shortcut | Action |
@@ -149,12 +246,14 @@ Settings → **Themes**:
 
 ## Settings
 
-The settings panel (`⚙`) has three tabs:
+The settings panel (`⚙`) has four tabs:
 
 - **General**: appearance, interface language (en/zh), UI zoom, show hidden
   files, Git decorations, WebGL rendering, cursor blink, **Agent Usage** (the
   Claude usage toggle).
 - **Themes**: theme selection and background image.
+- **Profiles**: environment variable sets — see
+  [the section above](#profiles-switching-apis-and-proxies-the-highlight).
 - **About**: version info, check for updates, GitHub / issue links.
 
 ---
