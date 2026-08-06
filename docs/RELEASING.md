@@ -18,6 +18,48 @@ password manager for the path and passphrase.
 > key is genuinely lost, ship a transition release signed with the *old* key
 > that tells users to reinstall, and only then rotate.
 
+## Rotating the signing key
+
+Only if the key is compromised. It costs users, so don't do it casually.
+
+The public key is compiled into the app, which means **users can only verify an
+update with the key their currently installed version knows about**. A direct
+swap breaks every existing installation. The way through is a transition
+release that is signed with the *old* key but ships the *new* public key:
+
+1. Generate the new pair. Run this yourself — a password passed on a command
+   line ends up in shell history and in any transcript:
+
+   ```bash
+   pnpm tauri signer generate -w <path outside any git tree>
+   ```
+
+2. Put the new public key in `tauri.conf.json` and bump the version.
+
+3. **Build that release with the OLD key.** This is the step that matters:
+
+   ```bash
+   export TAURI_SIGNING_PRIVATE_KEY="<path to the OLD key>"
+   export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="<old passphrase>"
+   pnpm tauri build
+   ```
+
+   Installed clients hold the old public key, so only an old-key signature
+   verifies. The binary they install carries the new public key, and from then
+   on they trust it.
+
+4. Publish, and **leave that version up long enough for people to pick it up**.
+
+5. Every release after it signs with the new key.
+
+Signing the transition release with the *new* key is the failure mode to avoid:
+every existing installation fails verification at once, the update channel goes
+dead, and the only fix is asking each user to reinstall by hand.
+
+Anyone who never installs the transition release is stranded the same way —
+their client only ever trusts the old key. Keep the old key until you're
+satisfied the long tail has moved.
+
 ## 1. Bump the version — three files, all must agree
 
 ```
