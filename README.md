@@ -23,7 +23,9 @@ custom backgrounds in a lightweight native window.
 - Environment variable profiles for switching API endpoints and proxies per
   terminal, with secrets encrypted at rest via Windows DPAPI
 - Git decorations in the tree, plus a commit panel with per-file selection and diffs
-- Search, clickable links, copy and paste, and configurable font size
+- Search across terminal output with match highlighting and a hit counter
+- Clickable links, copy and paste, configurable font size and scrollback
+- Resizable file tree pane
 - Session restore for the previous tab group (shell + directory per tab)
 - Built-in themes and optional custom backgrounds
 - Tauri desktop packaging for Windows
@@ -82,18 +84,30 @@ window, and opener APIs require the Tauri runtime.
 
 ## Validation and Build
 
-Every change must pass the checks relevant to the modified code:
+Every change must pass the checks relevant to the modified code. CI runs all of
+these on Windows for every push and pull request:
 
 ```bash
+pnpm lint
+pnpm test
 pnpm build
-cargo check --locked --manifest-path src-tauri/Cargo.toml
-pnpm desktop:build
-# macOS
-pnpm desktop:build:macos
+cargo fmt --manifest-path src-tauri/Cargo.toml --check
+cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings
+cargo test --manifest-path src-tauri/Cargo.toml --locked --lib
 ```
 
-`pnpm desktop:build` is required before publishing a platform package. A frontend
-build alone does not prove that native terminal behavior works.
+CI does **not** build a platform package. Do that before publishing one — a
+frontend build alone does not prove that native terminal behavior works:
+
+```bash
+pnpm desktop:build          # Windows
+pnpm desktop:build:macos    # macOS
+```
+
+Windows releases run it through
+[`.github/workflows/release.yml`](.github/workflows/release.yml), triggered by a
+tag. macOS packages are built locally for now — the release workflow does not
+cover them.
 
 ## Project Structure
 
@@ -148,10 +162,18 @@ this repository.
 
 ## Current Limitations
 
-- Automated tests and continuous integration are not configured.
-- Content Security Policy is currently disabled.
-- Shell command quoting is not yet safely abstracted per shell.
-- The application metadata still contains initial Tauri template values.
+- `cmd.exe` expands `%VAR%` inside double-quoted arguments, and no amount of
+  string-level quoting prevents it. Paths containing `%` can therefore behave
+  unexpectedly in CMD tabs. PowerShell and Git Bash tabs are unaffected.
+- Environment profiles only apply to **newly created** terminals. A running
+  process cannot have its environment changed — that is an OS rule, not an
+  oversight.
+- Images cannot be displayed inline. Terminal image protocols (sixel, iTerm2)
+  are not implemented; Brace only tells you when the clipboard holds one.
+- Auto-update requires the release to carry a valid `latest.json`. See
+  [docs/RELEASING.md](docs/RELEASING.md) — a broken update channel fails
+  silently.
 
-These limitations must be treated as tracked engineering work, not as evidence
-that the corresponding behavior is safe or supported.
+These are known and accepted, not evidence that the surrounding behavior is
+unsafe. Engineering work in flight is tracked in
+[docs/ROADMAP.md](docs/ROADMAP.md).
