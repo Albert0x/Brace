@@ -2660,6 +2660,144 @@ mod tests {
         );
     }
 
+    // ----- PTY 退出检测 -----
+
+    // A1 的核心机制测试：shell 退出后，靠 try_wait 轮询能不能拿到退出码。
+    //
+    // 为什么非要测这个：ConPTY 在客户端退出后不会让 read 返回 EOF
+    // （见 bench_pty_read_chunks 的实测），所以「读循环结束了 → 进程没了」
+    // 这条推断根本不成立。整个退出提示和原地重启都建立在轮询能奏效之上,
+    // 这一条要是坏了，用户看到的又会是那个能打字却不回话的黑框。
+    #[test]
+    #[cfg(windows)]
+    fn detects_shell_exit_by_polling_not_by_eof() {
+        let pair = native_pty_system()
+            .openpty(PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .expect("开 pty");
+
+        let mut cmd = CommandBuilder::new("cmd.exe");
+        // 立刻以 3 退出，退出码要能原样传回前端
+        cmd.args(["/c", "exit", "3"]);
+        let child = pair.slave.spawn_command(cmd).expect("起进程");
+        drop(pair.slave);
+
+        let child: Arc<Mutex<Box<dyn Child + Send + Sync>>> = Arc::new(Mutex::new(child));
+
+        // 完全按生产代码里发送线程的做法轮询
+        let start = std::time::Instant::now();
+        let mut code = None;
+        while start.elapsed() < std::time::Duration::from_secs(10) {
+            let status = child
+                .lock()
+                .ok()
+                .and_then(|mut c| c.try_wait().ok().flatten());
+            if let Some(status) = status {
+                code = Some(status.exit_code());
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(EXIT_POLL_MS));
+        }
+
+        assert_eq!(
+            code,
+            Some(3),
+            "try_wait 必须能发现进程退出并带回退出码；拿不到就说明 pty-exit 发不出去"
+        );
+    }
+
+    // ----- 提交结果的三态（真实仓库） -----
+
+    // 造一个临时的、没有 remote 的 git 仓库。进程 id 进目录名，避免并发跑测试时撞车
+    #[cfg(windows)]
+    fn temp_repo(tag: &str) -> Option<String> {
+        let dir = std::env::temp_dir().join(format!("brace-test-{}-{}", tag, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).ok()?;
+        let cwd = dir.to_str()?.to_string();
+        // git 不可用就放弃这条测试，而不是把它判成失败
+        run_git_out(&cwd, &["init"], false).ok()?;
+        run_git_out(&cwd, &["config", "user.name", "Brace Test"], false).ok()?;
+        run_git_out(
+            &cwd,
+            &["config", "user.email", "test@example.invalid"],
+            false,
+        )
+        .ok()?;
+        Some(cwd)
+    }
+
+    // 这条盯的是最容易诱导用户做错事的那个路径：提交成功、推送失败。
+    // 一旦它被报成「整体失败」，用户就会再点一次提交——然后撞上 nothing to commit,
+    // 或者多出一个空提交。所以断言不止看返回值，还要回查提交数量。
+    #[test]
+    #[cfg(windows)]
+    fn reports_commit_succeeded_even_when_push_fails() {
+        let Some(cwd) = temp_repo("push-fail") else {
+            eprintln!("跳过：git 不可用");
+            return;
+        };
+        std::fs::write(format!("{cwd}/a.txt"), "hello").expect("写测试文件");
+
+        // 仓库没有 remote，push 必然失败
+        let outcome = git_commit(cwd.clone(), "test: first".into(), true, vec![], true)
+            .expect("commit 本身必须成功");
+
+        assert!(outcome.committed, "提交确实发生了");
+        assert!(!outcome.pushed, "没有 remote，不可能推上去");
+        assert!(
+            outcome.push_error.is_some(),
+            "推送失败必须带上原因，否则前端没法解释发生了什么"
+        );
+
+        let log = run_git_out(&cwd, &["log", "--oneline"], true).expect("读取提交历史");
+        assert_eq!(
+            log.lines().filter(|l| !l.trim().is_empty()).count(),
+            1,
+            "只应该有一个提交"
+        );
+
+        let _ = std::fs::remove_dir_all(std::path::Path::new(&cwd));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn reports_plain_commit_when_push_not_requested() {
+        let Some(cwd) = temp_repo("no-push") else {
+            eprintln!("跳过：git 不可用");
+            return;
+        };
+        std::fs::write(format!("{cwd}/a.txt"), "hello").expect("写测试文件");
+
+        let outcome = git_commit(cwd.clone(), "test: first".into(), false, vec![], true)
+            .expect("commit 必须成功");
+
+        assert!(outcome.committed);
+        assert!(!outcome.pushed);
+        assert!(
+            outcome.push_error.is_none(),
+            "没要求推送就不该有推送错误——前端会据此显示成功而不是警告"
+        );
+
+        let _ = std::fs::remove_dir_all(std::path::Path::new(&cwd));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn refuses_to_commit_without_message() {
+        let Some(cwd) = temp_repo("empty-msg") else {
+            eprintln!("跳过：git 不可用");
+            return;
+        };
+        std::fs::write(format!("{cwd}/a.txt"), "hello").expect("写测试文件");
+        assert!(git_commit(cwd.clone(), "   ".into(), false, vec![], true).is_err());
+        let _ = std::fs::remove_dir_all(std::path::Path::new(&cwd));
+    }
+
     // ----- git 状态码归类 -----
 
     #[test]
