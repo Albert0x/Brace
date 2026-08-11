@@ -17,9 +17,26 @@ import { useUsage } from "./hooks/useUsage";
 import { useGitStatus } from "./hooks/useGitStatus";
 import { useProfiles } from "./hooks/useProfiles";
 import { useAppearance } from "./hooks/useAppearance";
-import { usePersistedBool, usePersistedString } from "./hooks/usePersisted";
+import {
+  usePersistedBool,
+  usePersistedNumber,
+  usePersistedString,
+} from "./hooks/usePersisted";
 import { LangContext, createT, type Lang } from "./i18n";
 import "./App.css";
+
+// 搜索命中的配色。xterm 这里只收 #RRGGBB（不支持 alpha），所以用压暗的底色配描边
+// 来保证深浅主题下都看得见；当前命中项用亮一档的颜色和其余结果区分开。
+// 没有这组配置，findNext 只会把匹配项「选中」——而此时焦点在搜索框里，
+// 终端处于失焦状态，选中色淡到几乎看不出来，用户的感受就是「搜索没生效」
+const SEARCH_DECORATIONS = {
+  matchBackground: "#5c4a1f",
+  matchBorder: "#8a7434",
+  matchOverviewRuler: "#c9a227",
+  activeMatchBackground: "#b58900",
+  activeMatchBorder: "#ffd75f",
+  activeMatchColorOverviewRuler: "#ffd75f",
+};
 
 interface ShellInfo {
   id: string;
@@ -71,6 +88,9 @@ function App() {
     cwdMap,
     handleCwd,
     activeCwd,
+    exitedMap,
+    markExited,
+    clearExited,
   } = useTabs(homeCwd);
 
   const {
@@ -85,6 +105,7 @@ function App() {
     setFontSize,
     bgImage,
     pickBg,
+    bgError,
     overlay,
     setOverlay,
   } = useAppearance();
@@ -107,8 +128,42 @@ function App() {
   const [gitDeco, setGitDeco] = usePersistedBool("ht-gitdeco", false);
   const [webgl, setWebgl] = usePersistedBool("ht-webgl", true);
   const [cursorBlink, setCursorBlink] = usePersistedBool("ht-cursor", true);
+  // 回看行数。xterm 默认只有 1000 行，跑一次 pnpm build 或 cargo build
+  // 就把之前的上文全冲掉了——而那通常正是你想往回翻的东西
+  const [scrollback, setScrollback] = usePersistedNumber("ht-scrollback", 5000);
+  // 侧边栏宽度。以前写死 220px，而文件树是主打功能之一——
+  // 稍微深一点的路径就全是省略号，只能靠 title 悬浮才知道是什么
+  const [sidebarWidth, setSidebarWidth] = usePersistedNumber("ht-sidebar", 220);
 
-  const { gitStatus, refresh: refreshGit } = useGitStatus(activeCwd);
+  // 拖拽改宽度。松手后补发一次 resize，让 xterm 按新的可用宽度重新排版——
+  // 拖侧边栏不会触发 window 的 resize 事件，不补这一下终端会一直按旧列数渲染
+  const startSidebarDrag = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+    const prevCursor = document.body.style.cursor;
+    const prevSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    // 拖动中别把界面文字一路选蓝
+    document.body.style.userSelect = "none";
+
+    const onMove = (ev: MouseEvent) => {
+      // 夹在合理区间：太窄连图标都放不下，太宽终端就没地方了
+      const next = Math.max(140, Math.min(520, startWidth + ev.clientX - startX));
+      setSidebarWidth(next);
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevSelect;
+      window.dispatchEvent(new Event("resize"));
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  const { gitStatus, refresh: refreshGit } = useGitStatus(activeCwd, gitDeco);
   // 这两个整块传给 StatusBar，不在这里解构——它们本来就是各自内聚的一块状态
   const usageState = useUsage(activeId);
   const profiles = useProfiles();
@@ -195,13 +250,46 @@ function App() {
     delete searchAddons.current[id];
   }, []);
   const [searchQuery, setSearchQuery] = useState("");
+  // 计数带上它属于哪个标签。这样换标签时不用在 effect 里把它清空，
+  // 渲染时比对一下 id 就行——上一个终端的搜索结果自然就不会显示了
+  const [searchResult, setSearchResult] = useState<{
+    id: string;
+    resultIndex: number;
+    resultCount: number;
+  } | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const runSearch = (q: string, dir: number) => {
+
+  // 命中数只有在开了 decorations 时才会上报，两件事是绑在一起的
+  useEffect(() => {
     const a = searchAddons.current[activeId];
-    if (!a || !q) return;
-    if (dir >= 0) a.findNext(q);
-    else a.findPrevious(q);
+    if (!a) return;
+    const sub = a.onDidChangeResults((r) =>
+      setSearchResult({ id: activeId, ...r }),
+    );
+    return () => sub.dispose();
+  }, [activeId]);
+
+  const activeResult =
+    searchResult?.id === activeId ? searchResult : null;
+
+  const runSearch = (q: string, dir: number, incremental = false) => {
+    const a = searchAddons.current[activeId];
+    if (!a) return;
+    if (!q) {
+      // 清空搜索框就该把高亮一起收掉，否则满屏黄块留在那儿
+      a.clearDecorations();
+      setSearchResult(null);
+      return;
+    }
+
+    // incremental：打字过程中不往下一个结果跳，只在当前位置往后找。
+    // 之前每敲一个字符都 findNext，视口会跟着来回蹦
+    const opts = { decorations: SEARCH_DECORATIONS, incremental };
+    if (dir >= 0) a.findNext(q, opts);
+    else a.findPrevious(q, opts);
   };
+
+  const noMatch = !!searchQuery && activeResult?.resultCount === 0;
 
   useEffect(() => {
     if (!shellMenu) return;
@@ -265,11 +353,22 @@ function App() {
             {tabs.map((tab) => (
               <div
                 key={tab.id}
-                className={"tab" + (tab.id === activeId ? " active" : "")}
+                className={
+                  "tab" +
+                  (tab.id === activeId ? " active" : "") +
+                  (tab.id in exitedMap ? " exited" : "")
+                }
                 onClick={() => setActiveId(tab.id)}
               >
                 <span className="tab-dot" />
-                <span className="tab-title" title={cwdMap[tab.id] ?? ""}>
+                <span
+                  className="tab-title"
+                  title={
+                    tab.id in exitedMap
+                      ? t("tab.exitedTitle")
+                      : (cwdMap[tab.id] ?? "")
+                  }
+                >
                   {tabLabel(tab)}
                 </span>
                 {tabs.length > 1 && (
@@ -321,7 +420,7 @@ function App() {
           </div>
 
           <div className="topbar-right">
-            <div className="search-box">
+            <div className={"search-box" + (noMatch ? " no-match" : "")}>
               <span className="search-icon">⌕</span>
               <input
                 ref={searchInputRef}
@@ -329,13 +428,24 @@ function App() {
                 placeholder={t("search.placeholder", { mod: shortcutMod })}
                 onChange={(e) => {
                   setSearchQuery(e.target.value);
-                  runSearch(e.target.value, 1);
+                  runSearch(e.target.value, 1, true);
                 }}
                 onKeyDown={(e) => {
+                  // 打字只高亮，回车才跳到下一个（Shift+回车往回跳）
                   if (e.key === "Enter") runSearch(searchQuery, e.shiftKey ? -1 : 1);
-                  else if (e.key === "Escape") setSearchQuery("");
+                  else if (e.key === "Escape") {
+                    setSearchQuery("");
+                    runSearch("", 1);
+                  }
                 }}
               />
+              {searchQuery && activeResult && (
+                <span className="search-count">
+                  {activeResult.resultCount === 0
+                    ? t("search.none")
+                    : `${activeResult.resultIndex + 1}/${activeResult.resultCount}`}
+                </span>
+              )}
             </div>
             <button
               className="icon-btn"
@@ -365,7 +475,7 @@ function App() {
         </header>
 
         <div className="body">
-          <aside className="sidebar">
+          <aside className="sidebar" style={{ flexBasis: sidebarWidth }}>
             <FileTree
               rootPath={activeCwd}
               onOpenDir={openDirInTerminal}
@@ -376,6 +486,12 @@ function App() {
               gitDeco={gitDeco}
             />
           </aside>
+
+          <div
+            className="sidebar-resizer"
+            onMouseDown={startSidebarDrag}
+            title={t("sidebar.resize")}
+          />
 
           <main className="main">
             {tabs.map((tab) => (
@@ -389,11 +505,14 @@ function App() {
                 fontSize={fontSize}
                 cursorBlink={cursorBlink}
                 webgl={webgl}
+                scrollback={scrollback}
                 shellPath={tab.shellPath}
                 shellType={tab.shellType}
                 onRegisterSearch={registerSearch}
                 debugInput={debugInput}
                 onUnregisterSearch={unregisterSearch}
+                onExit={markExited}
+                onRestarted={clearExited}
               />
             ))}
             {tabs.length === 0 && (
@@ -428,6 +547,7 @@ function App() {
         onSelectTheme={setTheme}
         hasBg={!!bgImage}
         overlay={overlay}
+        bgError={bgError}
         onPickBg={pickBg}
         onClearBg={() => pickBg("")}
         onOverlay={setOverlay}
@@ -443,6 +563,8 @@ function App() {
         onWebgl={setWebgl}
         cursorBlink={cursorBlink}
         onCursorBlink={setCursorBlink}
+        scrollback={scrollback}
+        onScrollback={setScrollback}
         commitTypes={commitTypesRaw}
         debugInput={debugInput}
         onDebugInput={setDebugInput}

@@ -83,7 +83,12 @@ export default function GitPanel({
   const [type, setType] = useState("");
   const [scope, setScope] = useState("");
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  // 三态而不是两态：「已提交但没推上去」既不是成功也不是失败，
+  // 归到任何一边都会让用户做错事——归成功他不知道要补 push，归失败他会重复提交
+  const [result, setResult] = useState<{
+    kind: "ok" | "warn" | "err";
+    msg: string;
+  } | null>(null);
 
   // 只列真正的改动，忽略 ignored（"!"）
   const entries = Object.entries(gitStatus?.files ?? {}).filter(
@@ -137,7 +142,11 @@ export default function GitPanel({
     setBusy(true);
     setResult(null);
     try {
-      await invoke<string>("git_commit", {
+      const outcome = await invoke<{
+        committed: boolean;
+        pushed: boolean;
+        pushError: string | null;
+      }>("git_commit", {
         cwd,
         message: composed,
         push,
@@ -145,7 +154,20 @@ export default function GitPanel({
         // 全选时走 add -A，省得把几百个路径拼进命令行
         all: allSelected,
       });
-      setResult({ ok: true, msg: push ? t("git.pushed") : t("git.committed") });
+      // 推送失败但提交已完成：明确说清「提交在本地了，别再点一次」，
+      // 否则用户会重复提交出一个空 commit
+      if (outcome.pushError) {
+        setResult({
+          kind: "warn",
+          msg: t("git.committedPushFailed", { e: outcome.pushError }),
+        });
+      } else {
+        setResult({
+          kind: "ok",
+          msg: outcome.pushed ? t("git.pushed") : t("git.committed"),
+        });
+      }
+      // 提交确实发生了，表单该清空——不管推送成没成
       setMessage("");
       // 类型和范围也清掉：下一次提交多半不是同一类改动，留着容易顺手误用
       setType("");
@@ -154,7 +176,7 @@ export default function GitPanel({
       setInitialized(false); // 让下一批改动重新默认全选
       onDone();
     } catch (e) {
-      setResult({ ok: false, msg: String(e) });
+      setResult({ kind: "err", msg: String(e) });
     }
     setBusy(false);
   };
@@ -273,9 +295,7 @@ export default function GitPanel({
               <pre className="git-preview">{composed}</pre>
             )}
             {result && (
-              <div className={"git-result" + (result.ok ? " ok" : " err")}>
-                {result.msg}
-              </div>
+              <div className={"git-result " + result.kind}>{result.msg}</div>
             )}
             <div className="git-actions">
               <button

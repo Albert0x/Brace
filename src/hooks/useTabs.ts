@@ -65,6 +65,9 @@ export function useTabs(homeCwd: string) {
   const [tabs, setTabs] = useState<Tab[]>(session.tabs);
   const [activeId, setActiveId] = useState<string>(session.activeId);
   const [cwdMap, setCwdMap] = useState<Record<string, string>>({});
+  // 哪些标签的 shell 已经退出了，值是退出码（拿不到时为 null）。
+  // 放在这里而不是 TerminalView 内部，是因为标签栏和终端两边都要用它
+  const [exitedMap, setExitedMap] = useState<Record<string, number | null>>({});
 
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
@@ -87,8 +90,13 @@ export function useTabs(homeCwd: string) {
     if (idx < 0) return;
     const next = current.filter((x) => x.id !== id);
     setTabs(next);
-    // 会话没了，它的 cwd 记录也得跟着走，否则 cwdMap 会一直攒已关闭标签的条目
+    // 会话没了，它的 cwd 和退出状态也得跟着走，否则这两张表会一直攒已关闭标签的条目
     setCwdMap((m) => {
+      if (!(id in m)) return m;
+      const { [id]: _gone, ...rest } = m;
+      return rest;
+    });
+    setExitedMap((m) => {
       if (!(id in m)) return m;
       const { [id]: _gone, ...rest } = m;
       return rest;
@@ -108,6 +116,25 @@ export function useTabs(homeCwd: string) {
 
   const handleCwd = useCallback((sid: string, path: string) => {
     setCwdMap((m) => (m[sid] === path ? m : { ...m, [sid]: path }));
+  }, []);
+
+  const markExited = useCallback((sid: string, code: number | null) => {
+    setExitedMap((m) => {
+      // 关标签时后端会 kill 进程，那同样会发出一次退出事件。如果它比
+      // 组件卸载先到，这里就会给一个已经不存在的标签记一笔——界面上看不见，
+      // 但反复开关标签会让这张表一直涨
+      if (!tabsRef.current.some((t) => t.id === sid)) return m;
+      return { ...m, [sid]: code };
+    });
+  }, []);
+
+  // 原地重启成功后调用：这个标签又活了
+  const clearExited = useCallback((sid: string) => {
+    setExitedMap((m) => {
+      if (!(sid in m)) return m;
+      const { [sid]: _gone, ...rest } = m;
+      return rest;
+    });
   }, []);
 
   const activeCwd = cwdMap[activeId] ?? homeCwd;
@@ -143,5 +170,8 @@ export function useTabs(homeCwd: string) {
     cwdMap,
     handleCwd,
     activeCwd,
+    exitedMap,
+    markExited,
+    clearExited,
   };
 }

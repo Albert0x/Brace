@@ -11,6 +11,10 @@ import { useLang, LANGS, type Lang } from "../i18n";
 
 const REPO_URL = "https://github.com/Albert0x/Brace";
 
+// 回看行数的可选档位。给固定档而不是让用户随便填数字：这个值没人需要精确控制，
+// 而输入框还得挡住 0、负数和「一百万」这种能把内存吃光的输入
+const SCROLLBACK_CHOICES = [1000, 5000, 10000, 50000];
+
 interface StatuslineStatus {
   configured: boolean;
   occupiedByOther: boolean;
@@ -25,6 +29,7 @@ interface Props {
   onSelectTheme: (t: Theme) => void;
   hasBg: boolean;
   overlay: number;
+  bgError: string;
   onPickBg: (dataUrl: string) => void;
   onClearBg: () => void;
   onOverlay: (v: number) => void;
@@ -40,6 +45,8 @@ interface Props {
   onWebgl: (v: boolean) => void;
   cursorBlink: boolean;
   onCursorBlink: (v: boolean) => void;
+  scrollback: number;
+  onScrollback: (v: number) => void;
   commitTypes: string;
   onCommitTypes: (v: string) => void;
   debugInput: boolean;
@@ -275,6 +282,22 @@ export default function SettingsPanel(props: Props) {
               <Row title={t("general.cursorBlink")} desc={t("general.cursorBlinkDesc")}>
                 <Toggle on={props.cursorBlink} onChange={props.onCursorBlink} />
               </Row>
+              <Row
+                title={t("general.scrollback")}
+                desc={t("general.scrollbackDesc")}
+              >
+                <select
+                  className="lang-select"
+                  value={String(props.scrollback)}
+                  onChange={(e) => props.onScrollback(Number(e.target.value))}
+                >
+                  {SCROLLBACK_CHOICES.map((n) => (
+                    <option key={n} value={n}>
+                      {n.toLocaleString()}
+                    </option>
+                  ))}
+                </select>
+              </Row>
 
               <div className="settings-section-title">{t("general.git")}</div>
               <Row title={t("general.commitTypes")} desc={t("general.commitTypesDesc")}>
@@ -371,6 +394,9 @@ export default function SettingsPanel(props: Props) {
                   onChange={onFile}
                 />
               </div>
+              {props.bgError && (
+                <p className="settings-error">{props.bgError}</p>
+              )}
               {props.hasBg && (
                 <div className="bg-slider">
                   <span>{t("themes.overlay")}</span>

@@ -14,6 +14,12 @@ export interface UsageStats {
   cacheAgeSec: number;
   hasRateLimits: boolean;
   hasData: boolean;
+  // 上下文占用是否真的读到了。为 false 时 contextPct 是 0，但那含义是「不知道」，
+  // 照着渲染就会显示成「用了 0%」——那正是「用量偶发显示 0%」的真身
+  hasContext: boolean;
+  // 数据不正常时的原因（cache-missing / cache-stale / context-missing 等），
+  // 正常时为空串
+  note: string;
 }
 
 const PROMPT_KEY = "brace-usage-prompt";

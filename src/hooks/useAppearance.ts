@@ -39,7 +39,9 @@ export function useAppearance() {
 
   // 缩放改了要让 xterm 重新 fit，否则行列数还是按旧尺寸算的
   useEffect(() => {
-    (document.documentElement.style as any).zoom = String(uiZoom);
+    // zoom 是非标准属性，CSSStyleDeclaration 的类型里没有它；
+    // 走 setProperty 就不用 as any 把整个 style 对象的类型丢掉
+    document.documentElement.style.setProperty("zoom", String(uiZoom));
     requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
   }, [uiZoom]);
 
@@ -61,12 +63,22 @@ export function useAppearance() {
       .then((d) => d && setBgImage(d))
       .catch(() => {});
   }, []);
+  // 后端会拒绝过大的图。失败时要退回原来那张并把原因说出来——
+  // 以前只 console.error，用户的体验是「选了张图，重启之后它没了」，
+  // 而且完全不知道为什么
+  const [bgError, setBgError] = useState("");
   const pickBg = (dataUrl: string) => {
+    setBgError("");
+    const previous = bgImage;
     setBgImage(dataUrl);
-    invoke("save_bg_image", { dataUrl }).catch(console.error);
+    invoke("save_bg_image", { dataUrl }).catch((e) => {
+      setBgImage(previous);
+      setBgError(String(e));
+    });
   };
 
   return {
+    bgError,
     theme,
     setTheme,
     effectiveTheme,

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 
 use chrono::{DateTime, Utc};
 
@@ -62,6 +62,31 @@ struct PtyOutput {
     id: String,
     data: String,
 }
+
+// 会话结束通知。以前只发一个 id，前端压根没监听，于是 shell 退出后
+// 留给用户的是一个能打字、但永远不回话的黑框——没有提示，没有退出码，
+// 也看不出到底是自己敲了 exit 还是进程崩了。
+#[derive(Clone, Serialize)]
+struct PtyExit {
+    id: String,
+    // 拿不到退出状态时为 None（进程被外部杀掉等）
+    code: Option<u32>,
+}
+
+// pty_write 在会话已经不存在时回这个串。前端靠它区分「终端没了」和普通写入错误，
+// 改动字面量会让前端的判断失效
+const SESSION_GONE: &str = "session-gone";
+
+// 输出聚合窗口。实测（见 bench_pty_read_chunks）ConPTY 平均每次只给 142 字节，
+// 而读缓冲区有 4096——1MB 输出要读 8000 多次。照「读一次发一次」的老做法，
+// 那就是 8000 个 IPC 事件、峰值每秒 8000+，每个还得序列化成 JSON。
+// 攒够一帧再发，事件数降两个数量级，16ms 的延迟人眼分辨不出来。
+const OUTPUT_FLUSH_MS: u64 = 16;
+
+// 空闲时的巡检间隔。ConPTY 在客户端退出后**不会**让 read 返回 EOF
+// （实测阻塞 12 秒仍不返回），所以「shell 退出了」这件事只能靠主动 try_wait 发现。
+// 早先把 emit 放在读循环结束之后，那个事件其实永远发不出去
+const EXIT_POLL_MS: u64 = 120;
 
 // 各 shell 注入自己的 prompt，用 OSC 9;9 上报 cwd（供文件树联动）。结尾只用 \r。
 // PowerShell 系：function prompt 里拼 OSC + 可见提示符
@@ -179,9 +204,18 @@ fn pty_create(
         let _ = writer.flush();
     }
 
-    let app_handle = app.clone();
-    let sid = id.clone();
-    let child_for_wait = Arc::clone(&child);
+    // 读和发拆成两个线程。
+    //
+    // 拆开的原因不是为了好看，是因为这条路上有两件事不能放在一起做：
+    //   1. ConPTY 平均每次只给一百多字节，读一次发一次会把 IPC 打爆（见 C3 的实测）；
+    //   2. ConPTY 在 shell 退出后不会让 read 返回 EOF，read 会一直阻塞。
+    //      把「进程退出了」的判断挂在读循环结束之后，那个判断永远等不到。
+    //
+    // 所以：读线程只负责把字节搬进缓冲区；发送线程按帧把缓冲区清空，
+    // 顺便周期性地 try_wait 看看进程还在不在。
+    let pending = Arc::new((Mutex::new(String::new()), Condvar::new()));
+
+    let pending_writer = Arc::clone(&pending);
     std::thread::spawn(move || {
         let mut buf = [0u8; 4096];
         let mut leftover: Vec<u8> = Vec::new();
@@ -190,24 +224,105 @@ fn pty_create(
                 Ok(0) => break,
                 Ok(n) => {
                     let data = decode_utf8_stream(&mut leftover, &buf[..n]);
-                    if !data.is_empty() {
-                        let _ = app_handle.emit(
-                            "pty-output",
-                            PtyOutput {
-                                id: sid.clone(),
-                                data,
-                            },
-                        );
+                    if data.is_empty() {
+                        continue;
                     }
+                    let (lock, cv) = &*pending_writer;
+                    match lock.lock() {
+                        Ok(mut g) => g.push_str(&data),
+                        Err(_) => break,
+                    }
+                    cv.notify_one();
                 }
                 Err(_) => break,
             }
         }
-        // 读循环结束说明进程已退出（或即将退出），在这里回收，避免 kill() 和 wait() 抢锁死锁
-        if let Ok(mut c) = child_for_wait.lock() {
-            let _ = c.wait();
+        // 走到这儿说明 master 已经被 drop 了（发送线程摘掉 session 时会发生），
+        // 这正是唯一能把卡住的 read 唤醒的办法
+    });
+
+    let app_handle = app.clone();
+    let sid = id.clone();
+    let child_for_wait = Arc::clone(&child);
+    std::thread::spawn(move || {
+        let (lock, cv) = &*pending;
+
+        // 把缓冲区里攒的内容一次性发给前端
+        let flush = |app: &AppHandle, id: &str| {
+            let chunk = match lock.lock() {
+                Ok(mut g) => std::mem::take(&mut *g),
+                Err(_) => String::new(),
+            };
+            if !chunk.is_empty() {
+                let _ = app.emit(
+                    "pty-output",
+                    PtyOutput {
+                        id: id.to_string(),
+                        data: chunk,
+                    },
+                );
+            }
+        };
+
+        loop {
+            // 有数据就攒一帧再发；没有就睡一会，醒来查一次进程状态。
+            // 空闲的终端在这里是完全阻塞的，不烧 CPU
+            let has_data = match lock.lock() {
+                Ok(g) if !g.is_empty() => true,
+                Ok(g) => {
+                    let waited = cv
+                        .wait_timeout(g, std::time::Duration::from_millis(EXIT_POLL_MS))
+                        .map(|(g, _)| !g.is_empty());
+                    waited.unwrap_or(false)
+                }
+                Err(_) => break,
+            };
+
+            if has_data {
+                // 松开锁睡一帧，让这段时间内到达的输出一起并进来
+                std::thread::sleep(std::time::Duration::from_millis(OUTPUT_FLUSH_MS));
+                flush(&app_handle, &sid);
+            }
+
+            // shell 退出了吗？只能主动问，read 那边永远不会告诉我们。
+            //
+            // 必须是 try_wait 而不是 wait：wait 会攥着这把锁一直阻塞到进程结束，
+            // 而 pty_close 要拿同一把锁去 kill——那就是个死锁。改成非阻塞轮询后
+            // 持锁时间只有一瞬，顺带把这个隐患也消掉了
+            let status = child_for_wait
+                .lock()
+                .ok()
+                .and_then(|mut c| c.try_wait().ok().flatten());
+            let Some(status) = status else {
+                continue;
+            };
+
+            // 退出前把最后一点残留发完，别让用户少看见最后几行
+            flush(&app_handle, &sid);
+
+            // 摘掉 session。两个作用：pty_write 从此能明确回「会话不存在」，
+            // 而不是把用户敲的字灌进一个死管道；同时 PtySession 析构会 drop master，
+            // 卡在 read 上的读线程随之解除阻塞退出——否则每关一个标签漏一个线程
+            if let Some(mgr) = app_handle.try_state::<PtyManager>() {
+                if let Ok(mut sessions) = mgr.sessions.lock() {
+                    sessions.remove(&sid);
+                }
+            }
+
+            // 上面那次 flush 和进程退出之间有个窄窗口：读线程可能刚好又塞进了
+            // 最后一批字节。等一帧再兜一次，否则 shell 退出前的最后几行会静静消失
+            std::thread::sleep(std::time::Duration::from_millis(OUTPUT_FLUSH_MS));
+            flush(&app_handle, &sid);
+
+            let _ = app_handle.emit(
+                "pty-exit",
+                PtyExit {
+                    id: sid.clone(),
+                    code: Some(status.exit_code()),
+                },
+            );
+            break;
         }
-        let _ = app_handle.emit("pty-exit", sid.clone());
     });
 
     manager.sessions.lock().map_err(|e| e.to_string())?.insert(
@@ -225,12 +340,15 @@ fn pty_create(
 #[tauri::command]
 fn pty_write(manager: State<'_, PtyManager>, id: String, data: String) -> Result<(), String> {
     let mut sessions = manager.sessions.lock().map_err(|e| e.to_string())?;
-    if let Some(s) = sessions.get_mut(&id) {
-        s.writer
-            .write_all(data.as_bytes())
-            .map_err(|e| e.to_string())?;
-        s.writer.flush().map_err(|e| e.to_string())?;
-    }
+    // 会话不在了：进程已退出，或者标签刚被关掉。以前这里直接返回 Ok，
+    // 前后端一起假装写成功了——用户敲的每个字都进了黑洞，还没有任何提示
+    let Some(s) = sessions.get_mut(&id) else {
+        return Err(SESSION_GONE.into());
+    };
+    s.writer
+        .write_all(data.as_bytes())
+        .map_err(|e| e.to_string())?;
+    s.writer.flush().map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -388,6 +506,18 @@ fn git_cmd(cwd: &str, args: &[&str], read_only: bool) -> std::process::Command {
     }
     cmd.arg("-c").arg("core.quotepath=false");
     cmd.arg("-C").arg(cwd).args(args);
+
+    // 凭据交互必须关掉。这些子进程带 CREATE_NO_WINDOW 启动、stdin 是空的，
+    // git 一旦决定「问用户要密码」就会永远等在那里，而 output() 没有超时——
+    // 表现是 GitPanel 整个卡死，转圈转到用户杀进程为止，日志里什么都没有。
+    // 关掉之后同样的场景会立刻失败并带上原因，前端据此引导用户先去终端里
+    // 跑一次 git push 完成认证。快速失败比静默死锁好得多。
+    //
+    // 故意不动 GIT_ASKPASS：用户可能配了自己的凭据助手，覆盖它等于砸掉一条
+    // 本来能正常工作的认证路径。上面两个已经堵住会死锁的那条。
+    cmd.env("GIT_TERMINAL_PROMPT", "0");
+    cmd.env("GCM_INTERACTIVE", "never");
+
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -425,8 +555,13 @@ fn classify(xy: &str) -> &'static str {
     "M"
 }
 
+// include_ignored 由前端的「Git 装饰」开关决定。
+//
+// --ignored 会让 git 把所有被忽略的文件逐条列出来——在带 node_modules 或 target
+// 的仓库里就是几万条路径，序列化一遍再走一趟 IPC，每 20 秒一次。而这些数据
+// 只有文件树的装饰用得上：装饰关掉时状态栏只要分支名，那笔开销纯属白烧。
 #[tauri::command]
-fn git_status(cwd: String) -> GitStatus {
+fn git_status(cwd: String, include_ignored: bool) -> GitStatus {
     let mut st = GitStatus::default();
     if cwd.trim().is_empty() {
         return st;
@@ -444,7 +579,11 @@ fn git_status(cwd: String) -> GitStatus {
         .unwrap_or_default();
     // -z：记录以 NUL 分隔，路径不加引号/不转义；重命名/拷贝记录是两个 NUL 分隔字段
     // "XY newpath\0oldpath\0"，要多吃一个 token 跳过旧路径
-    if let Some(out) = run_git(&cwd, &["status", "--porcelain", "-z", "--ignored"]) {
+    let mut status_args: Vec<&str> = vec!["status", "--porcelain", "-z"];
+    if include_ignored {
+        status_args.push("--ignored");
+    }
+    if let Some(out) = run_git(&cwd, &status_args) {
         let mut tokens = out.split('\0');
         while let Some(rec) = tokens.next() {
             if rec.len() < 4 {
@@ -488,6 +627,22 @@ fn to_pathspec(path: &str) -> String {
     path.replace('\\', "/")
 }
 
+// 提交的结果。
+//
+// 「提交成功但推送失败」必须能和「整体失败」区分开：网络断了、没有 upstream、
+// 认证过期都会让 push 挂掉，而这时改动已经实实在在提交到本地了。以前这里直接
+// 把 push 的错误往外抛，前端只显示「失败」，用户的第一反应是再点一次——
+// 于是要么撞上 nothing to commit，要么多出一个空提交。报错报得不准，
+// 就是在诱导用户破坏自己的提交历史。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CommitOutcome {
+    committed: bool,
+    pushed: bool,
+    // Some 表示提交已完成、推送失败，内容是 git 给的原因
+    push_error: Option<String>,
+}
+
 // 提交。all=true 走 add -A（全选是最常见的场景，也避开了一长串路径把命令行撑爆的问题）；
 // 否则只 add/commit 选中的那些路径。
 //
@@ -500,7 +655,7 @@ fn git_commit(
     push: bool,
     paths: Vec<String>,
     all: bool,
-) -> Result<String, String> {
+) -> Result<CommitOutcome, String> {
     if cwd.trim().is_empty() {
         return Err("没有工作目录".into());
     }
@@ -526,11 +681,27 @@ fn git_commit(
         run_git_out(&cwd, &commit, false)?;
     }
 
+    // 走到这里 commit 一定成功了（失败的话上面已经 ? 出去了）。
+    // 所以 push 的错误绝不能用 ? ——那会把「已提交」这个事实一起丢掉
     if push {
-        run_git_out(&cwd, &["push"], false)?;
-        Ok("pushed".into())
+        match run_git_out(&cwd, &["push"], false) {
+            Ok(_) => Ok(CommitOutcome {
+                committed: true,
+                pushed: true,
+                push_error: None,
+            }),
+            Err(e) => Ok(CommitOutcome {
+                committed: true,
+                pushed: false,
+                push_error: Some(e),
+            }),
+        }
     } else {
-        Ok("committed".into())
+        Ok(CommitOutcome {
+            committed: true,
+            pushed: false,
+            push_error: None,
+        })
     }
 }
 
@@ -889,6 +1060,14 @@ struct UsageStats {
     cache_age_sec: i64,      // claude：缓存数据距今秒数
     has_rate_limits: bool,   // claude：缓存里有没有 5h/7d 额度
     has_data: bool,          // 数据是否读到
+    // 上下文占用是不是真读到了。
+    // 缓存里缺 context_window.used_percentage 时 context_pct 会是 0.0，
+    // 但那含义是「不知道」，不是「用了 0%」——以前两者在前端长得一模一样，
+    // 于是就有了「用量偶尔显示 0%」这种查无实据的现象
+    has_context: bool,
+    // 数据不正常时说明原因，空串表示一切正常。给前端做 tooltip，
+    // 也是下次再撞见异常时唯一的线索
+    note: String,
 }
 
 // 判断给定 shell pid 的后代进程里在跑哪个 agent → "claude" / "codex" / ""
@@ -1045,7 +1224,10 @@ fn usage_stats(manager: State<'_, PtyManager>, session_id: String) -> UsageStats
         "claude" => {
             let cache = match read_statusline_cache() {
                 Some(c) => c,
-                None => return stats,
+                None => {
+                    stats.note = "cache-missing".into();
+                    return stats;
+                }
             };
             // 新鲜度：缓存超过 15 分钟没更新（claude 没在活跃跑，或开关已关脚本停写），
             // 不拿旧数据糊弄——直接返回，前端隐藏整条
@@ -1053,6 +1235,7 @@ fn usage_stats(manager: State<'_, PtyManager>, session_id: String) -> UsageStats
                 .as_f64()
                 .map_or(f64::INFINITY, |u| Utc::now().timestamp() as f64 - u);
             if age > 900.0 {
+                stats.note = "cache-stale".into();
                 return stats;
             }
             stats.has_data = true;
@@ -1062,9 +1245,15 @@ fn usage_stats(manager: State<'_, PtyManager>, session_id: String) -> UsageStats
             {
                 stats.model = m.to_string();
             }
-            stats.context_pct = cache["context_window"]["used_percentage"]
-                .as_f64()
-                .unwrap_or(0.0);
+            // 缺字段时 as_f64() 给的是 None。以前这里 unwrap_or(0.0)，
+            // 把「读不到」直接说成「用了 0%」——用户看到的就是那个莫名其妙的 0%
+            match cache["context_window"]["used_percentage"].as_f64() {
+                Some(v) => {
+                    stats.context_pct = v;
+                    stats.has_context = true;
+                }
+                None => stats.note = "context-missing".into(),
+            }
             let rl = &cache["rate_limits"];
             if rl.is_object() {
                 stats.has_rate_limits = true;
@@ -1080,9 +1269,13 @@ fn usage_stats(manager: State<'_, PtyManager>, session_id: String) -> UsageStats
         "codex" => {
             if let Some((ctx, total)) = read_codex_usage() {
                 stats.has_data = true;
+                stats.has_context = true;
                 stats.model = "Codex".into();
                 stats.context_pct = ctx;
                 stats.codex_total_tokens = total;
+            } else {
+                // 找不到会话记录：CODEX_HOME 指到别处，或者这个会话还没写过 token_count
+                stats.note = "codex-session-missing".into();
             }
         }
         _ => {}
@@ -1495,9 +1688,22 @@ fn bg_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("background.dataurl"))
 }
 
+// 背景图 data URL 的体积上限。base64 会把原图撑大约 1/3，8MB 差不多对应
+// 一张 6MB 的照片——当壁纸绰绰有余。这里以前完全不校验，于是一张 20MB 的图
+// 会变成 27MB 的字符串：过一趟 IPC、原样落盘、每次启动再整个读进内存，
+// 最后塞进 CSS 的 url()。
+const MAX_BG_BYTES: usize = 8 * 1024 * 1024;
+
 // data_url 传空串 = 清除背景
 #[tauri::command]
 fn save_bg_image(app: AppHandle, data_url: String) -> Result<(), String> {
+    if data_url.len() > MAX_BG_BYTES {
+        return Err(format!(
+            "图片太大：{:.1} MB，上限 {} MB",
+            data_url.len() as f64 / 1024.0 / 1024.0,
+            MAX_BG_BYTES / 1024 / 1024
+        ));
+    }
     let path = bg_path(&app)?;
     if data_url.is_empty() {
         // 本来就没有也算成功，不用让前端去区分"没设过"和"删失败"
@@ -1596,7 +1802,28 @@ fn dpapi(_input: &[u8], _protect: bool) -> Option<Vec<u8>> {
     None
 }
 
-// 明文 → 落盘形态。加密不可用时退回明文，不阻塞用户使用
+// DPAPI 到底能不能用，只有真跑一次加解密往返才知道。
+//
+// 这里以前写的是 cfg!(windows)——编译期常量，在 Windows 上恒为 true。
+// 而 seal() 遇到 DPAPI 失败会静默退回明文。两者一叠加，结果是 token 明文
+// 躺在磁盘上、界面却告诉用户「已用 DPAPI 加密」。用户会因为这句话放心地去
+// 同步那个配置文件。安全提示撒谎比根本没有提示更危险。
+//
+// 加密能力在进程生命周期内不会变，探一次缓存住即可。
+fn encryption_works() -> bool {
+    static PROBE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *PROBE.get_or_init(|| {
+        const SAMPLE: &[u8] = b"brace-dpapi-probe";
+        match dpapi(SAMPLE, true) {
+            // 加得上还要解得开才算数：只成功一半的加密等于没有加密
+            Some(blob) => dpapi(&blob, false).as_deref() == Some(SAMPLE),
+            None => false,
+        }
+    })
+}
+
+// 明文 → 落盘形态。加密不可用时退回明文，不阻塞用户使用——
+// 但此时 encryption_works() 会返回 false，界面必须如实显示「未加密」
 fn seal(plain: &str) -> String {
     use base64::Engine;
     match dpapi(plain.as_bytes(), true) {
@@ -1679,7 +1906,13 @@ struct UiStore {
 #[serde(rename_all = "camelCase")]
 struct InVar {
     key: String,
-    value: String, // secret 且为空 = 沿用已存的值，不是"清空"
+    // None = 前端没动过这一项，沿用已存的值；Some("") = 明确清空。
+    //
+    // 以前这里是 String，空串同时背着「没改」和「清空」两个意思，于是
+    // 「改个变量名再改回来」会走出这么一条路：前端把这行标成「未设置」，
+    // 保存时传空串，后端却按 (配置组, 变量名) 查到了旧密文并原样留下——
+    // 界面说没有，磁盘上有，而且还在往新终端里注入。
+    value: Option<String>,
     secret: bool,
 }
 
@@ -1738,7 +1971,24 @@ fn load_profiles(app: AppHandle) -> UiStore {
             })
             .collect(),
         active_id: store.active_id,
-        encryption_available: cfg!(windows),
+        encryption_available: encryption_works(),
+    }
+}
+
+// 决定一个 secret 变量最终落盘成什么。
+//
+// incoming 三种取值对应三种意图，混淆任意两个都会出事：
+//   None       前端没动过这一项 → 沿用已存的密文（前端本来也拿不到明文）
+//   Some("")   明确清空，或者改了变量名 → 旧密文作废
+//   Some(值)   填了新值 → 加密后落盘
+//
+// 单独拎出来是为了能直接测：之前「改名再改回原名」就是栽在这段逻辑上——
+// 界面显示「未设置」，磁盘上旧密文却还在，而且继续注入新终端
+fn resolve_secret_value(incoming: Option<String>, existing: Option<&String>) -> String {
+    match incoming {
+        None => existing.cloned().unwrap_or_default(),
+        Some(s) if s.is_empty() => String::new(),
+        Some(s) => seal(&s),
     }
 }
 
@@ -1764,14 +2014,9 @@ fn save_profiles(app: AppHandle, store: InStore) -> Result<(), String> {
                 .into_iter()
                 .map(|v| {
                     let value = if !v.secret {
-                        v.value
-                    } else if v.value.is_empty() {
-                        // 空 = 前端没动这个密钥，沿用旧密文（前端本来也拿不到明文）
-                        kept.get(&(p.id.clone(), v.key.clone()))
-                            .cloned()
-                            .unwrap_or_default()
+                        v.value.unwrap_or_default()
                     } else {
-                        seal(&v.value)
+                        resolve_secret_value(v.value, kept.get(&(p.id.clone(), v.key.clone())))
                     };
                     StoredVar {
                         key: v.key,
@@ -2110,6 +2355,63 @@ mod tests {
 
     // ----- 配置组密钥加解密 -----
 
+    // 这条锁的是整个加密提示的可信度：界面上说「已加密」，磁盘上就必须真的是密文。
+    // 以前 encryption_available 用的是编译期的 cfg!(windows)，而 seal() 在 DPAPI
+    // 失败时会静默退回明文——两者一脱节，用户看到的就是一句谎话。
+    // 不分平台跑：非 Windows 上 dpapi() 恒为 None，两边都该是 false。
+    #[test]
+    fn encryption_flag_matches_what_seal_actually_does() {
+        let sealed = seal("probe-value");
+        assert_eq!(
+            encryption_works(),
+            sealed.starts_with(ENC_PREFIX),
+            "encryption_works() 报的状态和 seal() 的实际行为对不上"
+        );
+    }
+
+    // ----- secret 的三态语义 -----
+
+    #[test]
+    fn keeps_existing_secret_when_frontend_sends_nothing() {
+        // 前端拿不到明文，所以「没改」只能用 None 表达
+        let old = "enc:AAAA".to_string();
+        assert_eq!(resolve_secret_value(None, Some(&old)), old);
+    }
+
+    #[test]
+    fn yields_empty_when_nothing_sent_and_nothing_stored() {
+        assert_eq!(resolve_secret_value(None, None), "");
+    }
+
+    // 这条是「改名再改回原名」那个 bug 的回归测试：前端明确送来空串时，
+    // 哪怕旧密文还躺在 kept 里也必须丢掉。否则界面说「未设置」，
+    // 磁盘上的旧密钥却继续往新终端里注入
+    #[test]
+    fn clears_secret_when_frontend_explicitly_sends_empty() {
+        let old = "enc:AAAA".to_string();
+        assert_eq!(resolve_secret_value(Some(String::new()), Some(&old)), "");
+    }
+
+    #[test]
+    fn seals_newly_provided_secret() {
+        let out = resolve_secret_value(Some("sk-new-token".into()), None);
+        if encryption_works() {
+            assert!(out.starts_with(ENC_PREFIX), "落盘的必须是密文");
+            assert!(!out.contains("sk-new-token"), "密文里不能残留明文片段");
+        } else {
+            // 加密不可用时 seal 有意退回明文（不阻塞用户），
+            // 而 encryption_works() 会把这件事如实告诉界面——见上面那条一致性测试
+            assert_eq!(out, "sk-new-token");
+        }
+    }
+
+    #[test]
+    fn new_value_wins_over_stored_one() {
+        let old = "enc:OLD".to_string();
+        let out = resolve_secret_value(Some("fresh".into()), Some(&old));
+        assert_ne!(out, old);
+    }
+
     #[test]
     #[cfg(windows)]
     fn seals_and_unseals_secret() {
@@ -2144,6 +2446,177 @@ mod tests {
             let _ = detect_agent(std::process::id());
         }
         println!("后续 3 次平均: {:?}", t.elapsed() / 3);
+    }
+
+    // PTY 读循环的实测数据。回答一个问题：现在「每次 read 就 emit 一个事件」的做法，
+    // 在高频输出下到底会产生多少个事件？
+    //
+    // 关键不是总字节数，是**平均块大小**——ConPTY 每次给多少字节，直接决定事件数量。
+    // 如果块普遍接近 4096，那事件数就是可接受的；如果只有几百字节，
+    // 那么一次 cargo build 的输出就能刷出几万个 IPC 事件，每个都要序列化成 JSON。
+    //
+    // 跑法：cargo test --manifest-path src-tauri/Cargo.toml --lib -- --ignored --nocapture bench_pty
+    #[test]
+    #[ignore = "手动跑的性能测量，不进常规测试"]
+    #[cfg(windows)]
+    fn bench_pty_read_chunks() {
+        let dir = std::env::temp_dir().join("brace-bench");
+        std::fs::create_dir_all(&dir).expect("建临时目录");
+        let file = dir.join("big.txt");
+        // 约 10MB 文本，行长 120 —— 贴近编译日志那种输出形态
+        // 约 1MB。块大小分布不需要靠总量堆出来，采样够了就行——
+        // 第一版用了 10MB，ConPTY 要对每一行做完整的终端仿真，跑了十分钟还没完
+        let filler = "x".repeat(110);
+        let content: String = (0..8_000).map(|i| format!("{i:06} {filler}\n")).collect();
+        std::fs::write(&file, &content).expect("写测试数据");
+
+        let pair = native_pty_system()
+            .openpty(PtySize {
+                rows: 40,
+                cols: 120,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .expect("开 pty");
+        let mut cmd = CommandBuilder::new("cmd.exe");
+        cmd.args(["/c", "type", file.to_str().unwrap()]);
+        let mut child = pair.slave.spawn_command(cmd).expect("起进程");
+        drop(pair.slave);
+        let mut reader = pair.master.try_clone_reader().expect("拿 reader");
+
+        // 读循环放到独立线程里，主线程用「多久没有新数据」来判断输出结束。
+        // 不能在循环里做超时判断——read() 一旦阻塞，循环体根本不会执行到那一行。
+        // 这个结构顺便回答了另一个关键问题：客户端退出后 read 到底给不给 EOF。
+        // 生产代码里 pty-exit 事件正是在读循环结束之后才发的，如果永远拿不到 EOF，
+        // 那个事件就永远发不出去，A1 的退出提示也就无从谈起
+        let (tx, rx) = std::sync::mpsc::channel::<(usize, std::time::Instant)>();
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        if tx.send((n, std::time::Instant::now())).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+            // tx 在这里析构，主线程会收到 Disconnected —— 那才代表真的读到了尽头
+        });
+
+        let start = std::time::Instant::now();
+        let mut sizes: Vec<usize> = Vec::new();
+        let mut total = 0u64;
+        let mut last_data = std::time::Instant::now();
+        let mut stamps: Vec<std::time::Instant> = Vec::new();
+        let got_eof;
+        loop {
+            match rx.recv_timeout(std::time::Duration::from_secs(12)) {
+                Ok((n, at)) => {
+                    sizes.push(n);
+                    stamps.push(at);
+                    total += n as u64;
+                    last_data = std::time::Instant::now();
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    got_eof = true;
+                    break;
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    got_eof = false;
+                    break;
+                }
+            }
+        }
+        // 用最后一次收到数据的时刻算，别把末尾那段空等算进吞吐
+        let elapsed = last_data.duration_since(start);
+
+        // 拿不到 EOF 的话，接着验证一件事：主动关掉 master 能不能把卡住的 read 唤醒。
+        // 这直接决定修复方案——能唤醒就让「等进程退出」的线程去摘 session（连带 drop master），
+        // 读线程自己就收摊了；唤不醒的话每个关掉的标签都会漏一个永久阻塞的线程
+        let freed_by_drop = if got_eof {
+            None
+        } else {
+            drop(pair.master);
+            Some(matches!(
+                rx.recv_timeout(std::time::Duration::from_secs(5)),
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected)
+            ))
+        };
+
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = std::fs::remove_file(&file);
+
+        if let Some(freed) = freed_by_drop {
+            println!(
+                "drop(master) 能否唤醒卡住的 read：{}",
+                if freed {
+                    "能 —— 摘掉 session 就足以让读线程退出"
+                } else {
+                    "不能 —— 读线程会永久泄漏，需要另想办法"
+                }
+            );
+        }
+
+        println!(
+            "客户端退出后是否收到 EOF：{}",
+            if got_eof {
+                "是 —— 读循环能正常结束，pty-exit 发得出去"
+            } else {
+                "否 —— read() 一直阻塞，pty-exit 永远发不出来（A1 会失效）"
+            }
+        );
+
+        sizes.sort_unstable();
+        let reads = sizes.len();
+        let avg = (total as usize).checked_div(reads).unwrap_or(0);
+        let median = sizes.get(reads / 2).copied().unwrap_or(0);
+        let secs = elapsed.as_secs_f64();
+
+        println!("--- PTY 读循环实测 ---");
+        println!(
+            "总字节      : {} ({:.1} MB)",
+            total,
+            total as f64 / 1048576.0
+        );
+        println!("read 次数   : {reads}  ← 当前实现下等量的 IPC 事件数");
+        println!("平均块大小  : {avg} 字节（读缓冲区 4096）");
+        println!("中位块大小  : {median} 字节");
+        println!(
+            "最小 / 最大 : {} / {}",
+            sizes.first().unwrap_or(&0),
+            sizes.last().unwrap_or(&0)
+        );
+        println!("耗时        : {:.2}s", secs);
+        if secs > 0.0 {
+            println!("事件速率    : {:.0} 次/秒", reads as f64 / secs);
+        }
+
+        // 按 OUTPUT_FLUSH_MS 的窗口模拟一遍聚合，看事件数能降到什么量级。
+        // 和真实实现（有数据 → 睡一帧 → 一次性发）不完全等价，但数量级是对的
+        let mut aggregated = 0usize;
+        let mut window: Option<std::time::Instant> = None;
+        for at in &stamps {
+            match window {
+                Some(w) if at.duration_since(w).as_millis() < u128::from(OUTPUT_FLUSH_MS) => {}
+                _ => {
+                    aggregated += 1;
+                    window = Some(*at);
+                }
+            }
+        }
+        println!("--- 按 {OUTPUT_FLUSH_MS}ms 窗口聚合后 ---");
+        println!("事件数      : {aggregated}（原本 {reads}）");
+        if aggregated > 0 {
+            println!(
+                "降幅        : {:.1}%",
+                (1.0 - aggregated as f64 / reads as f64) * 100.0
+            );
+            println!("平均每事件  : {} 字节", total as usize / aggregated);
+        }
     }
 
     // ----- 文件名校验 -----
