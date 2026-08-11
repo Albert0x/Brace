@@ -39,6 +39,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # error 阻塞，warning 只提示。当前有 11 条 react-hooks v7 新规则的警告，
+      # 是一次独立重构，见 docs/ROADMAP.md 待评估项
+      - name: Lint frontend
+        run: pnpm lint
+
+      - name: Frontend tests
+        run: pnpm test
+
       - name: Typecheck and build frontend
         run: pnpm build
 

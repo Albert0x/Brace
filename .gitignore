@@ -12,6 +12,12 @@ node_modules
 dist
 dist-ssr
 *.local
+coverage
+
+# Claude Code 的本地配置（权限白名单等），一人一份，不该进仓库。
+# 之前只靠个人的全局 gitignore 挡着，别人 clone 下来就会露出来。
+# .claude/settings.json（团队共享的那份）不在忽略范围内，正常跟踪。
+.claude/settings.local.json
 
 # Editor directories and files
 .vscode/*

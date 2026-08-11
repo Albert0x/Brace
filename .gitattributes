@@ -1,0 +1,29 @@
+# 行尾归一化。
+#
+# 没有这个文件时，git 只能靠 core.autocrlf 猜每个文件该不该转换，结果是
+# `git status` 会周期性地把某个文件标成已修改，而 `git diff` 又是空的——
+# 内容一个字节没变，纯粹是行尾标记在打架（Cargo.toml 撞过一次）。
+#
+# text=auto：由 git 判断哪些是文本文件，入库统一存 LF，检出时按各人的
+# core.autocrlf 还原。声明之后行为是确定的，不再随机刷幽灵 diff。
+# 这里不写 eol=lf——那会强制重写所有人的工作区文件，代价大于收益。
+* text=auto
+
+# 二进制文件绝不能碰行尾，否则文件直接损坏
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.exe binary
+*.dll binary
+*.pdb binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+
+# lockfile 由包管理器生成，冲突时不做行级合并
+pnpm-lock.yaml -diff linguist-generated
+Cargo.lock -diff linguist-generated
