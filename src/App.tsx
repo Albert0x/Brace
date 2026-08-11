@@ -33,6 +33,9 @@ function App() {
   // getCurrentWindow() 会直接抛错崩掉，得先判断环境
   const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
   const appWindow = isTauri ? getCurrentWindow() : null;
+  // macOS 使用系统原生交通灯按钮，不渲染自绘窗口按钮。
+  const isMac = navigator.platform.toUpperCase().includes("MAC");
+  const shortcutMod = isMac ? "⌘" : "Ctrl+";
 
   // 语言（默认英文）
   const [langRaw, setLang] = usePersistedString("ht-lang", "en");
@@ -50,7 +53,12 @@ function App() {
     invoke<string>("os_version").then(setOsVersion).catch(() => {});
     invoke<string>("home_dir").then(setHomeCwd).catch(() => {});
   }, []);
-  const defaultShell = shells.find((s) => s.id === "powershell") ?? shells[0];
+  const defaultShell =
+    shells.find((s) => s.id === "powershell") ??
+    shells.find((s) => s.id === "default") ??
+    shells.find((s) => s.id === "zsh") ??
+    shells.find((s) => s.id === "bash") ??
+    shells[0];
 
   // ---- 各领域状态，逐个交给专门的 hook ----
   const {
@@ -120,7 +128,7 @@ function App() {
       openTab({
         cwd: activeCwd,
         shellPath: s?.path ?? "",
-        shellType: s?.shell_type ?? "powershell",
+        shellType: s?.shell_type ?? "default",
       });
     },
     [openTab, defaultShell, activeCwd],
@@ -150,9 +158,10 @@ function App() {
   const runInActiveShell = (
     build: (q: (p: string) => string, shellType: string) => string,
   ) => {
-    const st = tabs.find((x) => x.id === activeId)?.shellType ?? "powershell";
+    const st = tabs.find((x) => x.id === activeId)?.shellType ?? "default";
+    const isPosix = st === "bash" || st === "zsh" || st === "sh" || st === "default";
     const quote =
-      st === "cmd" ? cmdQuote : st === "bash" ? bashQuote : psQuote;
+      st === "cmd" ? cmdQuote : isPosix ? bashQuote : psQuote;
     invoke("pty_write", { id: activeId, data: build(quote, st) + "\r" }).catch(
       console.error,
     );
@@ -162,7 +171,7 @@ function App() {
     runInActiveShell((q, st) =>
       st === "cmd"
         ? `cd /d ${q(path)}`
-        : st === "bash"
+        : st === "bash" || st === "zsh" || st === "sh" || st === "default"
           ? `cd ${q(path)}`
           : `Set-Location -LiteralPath ${q(path)}`,
     );
@@ -172,7 +181,7 @@ function App() {
     runInActiveShell((q, st) =>
       st === "cmd"
         ? `type ${q(path)}`
-        : st === "bash"
+        : st === "bash" || st === "zsh" || st === "sh" || st === "default"
           ? `cat ${q(path)}`
           : `Get-Content -LiteralPath ${q(path)}`,
     );
@@ -205,7 +214,8 @@ function App() {
   // 所以这里不用再把 tabs 塞进依赖数组——那正是之前"关掉的标签被 Ctrl+W 复活"的成因
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!e.ctrlKey) return;
+      const hasPrimaryModifier = isMac ? e.metaKey : e.ctrlKey;
+      if (!hasPrimaryModifier) return;
       const stop = () => {
         e.preventDefault();
         e.stopPropagation();
@@ -236,7 +246,7 @@ function App() {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [addTab, removeTab, switchTab, activeId, setFontSize]);
+  }, [addTab, removeTab, switchTab, activeId, setFontSize, isMac]);
 
   return (
     <LangContext.Provider value={{ lang, setLang, t }}>
@@ -250,7 +260,7 @@ function App() {
       />
 
       <div className="app">
-        <header className="topbar" data-tauri-drag-region>
+        <header className={"topbar" + (isMac ? " mac" : "")} data-tauri-drag-region>
           <div className="tabs">
             {tabs.map((tab) => (
               <div
@@ -265,7 +275,7 @@ function App() {
                 {tabs.length > 1 && (
                   <span
                     className="tab-close"
-                    title={t("tab.close")}
+                    title={t("tab.close", { mod: shortcutMod })}
                     onClick={(e) => closeTab(tab.id, e)}
                   >
                     ×
@@ -275,8 +285,8 @@ function App() {
             ))}
 
             <div className="tab-add-group">
-              <button className="tab-add" title={t("tab.new")} onClick={() => addTab()}>
-                ＋
+              <button className="tab-add" title={t("tab.new", { mod: shortcutMod })} onClick={() => addTab()}>
+                <span className="tab-add-icon" aria-hidden="true">+</span>
               </button>
               {shells.length > 1 && (
                 <button
@@ -287,7 +297,7 @@ function App() {
                     setShellMenu((v) => !v);
                   }}
                 >
-                  ▾
+                  <span className="tab-caret-icon" aria-hidden="true">⌄</span>
                 </button>
               )}
               {shellMenu && (
@@ -316,7 +326,7 @@ function App() {
               <input
                 ref={searchInputRef}
                 value={searchQuery}
-                placeholder={t("search.placeholder")}
+                placeholder={t("search.placeholder", { mod: shortcutMod })}
                 onChange={(e) => {
                   setSearchQuery(e.target.value);
                   runSearch(e.target.value, 1);
@@ -332,9 +342,9 @@ function App() {
               title={t("toolbar.settings")}
               onClick={() => setSettingsOpen(true)}
             >
-              ⚙
+              <span className="settings-icon" aria-hidden="true">⚙︎</span>
             </button>
-            <div className="win-controls">
+            {!isMac && <div className="win-controls">
               <button className="win-btn" title={t("win.minimize")} onClick={() => appWindow?.minimize()}>
                 <svg width="10" height="10" viewBox="0 0 10 10">
                   <rect y="4.5" width="10" height="1" fill="currentColor" />
@@ -350,7 +360,7 @@ function App() {
                   <path d="M1 1 L9 9 M9 1 L1 9" stroke="currentColor" strokeWidth="1.2" />
                 </svg>
               </button>
-            </div>
+            </div>}
           </div>
         </header>
 
@@ -386,7 +396,9 @@ function App() {
                 onUnregisterSearch={unregisterSearch}
               />
             ))}
-            {tabs.length === 0 && <div className="empty-hint">{t("main.empty")}</div>}
+            {tabs.length === 0 && (
+              <div className="empty-hint">{t("main.empty", { mod: shortcutMod })}</div>
+            )}
             {preview && (
               <PreviewPanel
                 path={preview.path}

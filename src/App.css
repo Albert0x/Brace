@@ -58,6 +58,11 @@ body,
   user-select: none;
 }
 
+/* macOS 用系统原生交通灯（红黄绿），左侧留出按钮空间 */
+.topbar.mac {
+  padding-left: 88px;
+}
+
 .tabs {
   display: flex;
   align-items: center;
@@ -115,10 +120,15 @@ body,
 .tab-add {
   width: 26px;
   height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
   border: none;
   background: transparent;
   color: var(--ht-dim);
-  font-size: 16px;
+  font-family: inherit;
+  font-size: 20px;
+  line-height: 1;
   cursor: pointer;
   border-radius: 6px;
   transition: background 0.15s;
@@ -127,6 +137,25 @@ body,
 .tab-add:hover {
   background: var(--ht-hover);
   color: #fff;
+}
+
+.tab-add-icon,
+.tab-caret-icon,
+.settings-icon {
+  display: block;
+  line-height: 1;
+}
+
+.tab-add-icon {
+  transform: translateY(-1px);
+}
+
+.tab-caret-icon {
+  transform: translateY(-4px);
+}
+
+.settings-icon {
+  transform: translateY(-1px);
 }
 
 .topbar-right {
@@ -164,12 +193,17 @@ body,
 .icon-btn {
   width: 30px;
   height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
   border: none;
   background: transparent;
   color: var(--ht-dim);
   cursor: pointer;
   border-radius: 6px;
-  font-size: 15px;
+  font-family: inherit;
+  font-size: 18px;
+  line-height: 1;
   transition: background 0.15s, color 0.15s;
 }
 
@@ -1005,12 +1039,17 @@ body,
 }
 
 .tab-add-caret {
-  width: 18px;
+  width: 26px;
   height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
   border: none;
   background: transparent;
   color: var(--ht-dim);
-  font-size: 10px;
+  font-family: inherit;
+  font-size: 17px;
+  line-height: 1;
   cursor: pointer;
   border-radius: 6px;
 }

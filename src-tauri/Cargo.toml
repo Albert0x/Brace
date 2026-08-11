@@ -33,8 +33,6 @@ tauri-plugin-process = "2"
 chrono = "0.4"
 # 进程检测：判断当前终端是否真在跑 claude
 sysinfo = "0.33"
-# 读注册表判断 Windows 版本（Win10 的 acrylic 有黑边，需区分 Win10/11）
-winreg = "0.10"
 # 文件预览：图片转 base64 data URI
 base64 = "0.22"
 # 文件预览：中文 Windows 上大量 .bat/.txt 是 GBK，PowerShell 5.1 输出的是 UTF-16LE，
@@ -48,10 +46,11 @@ notify-debouncer-full = "0.7"
 trash = "5"
 
 [target.'cfg(windows)'.dependencies]
+# 读注册表判断 Windows 版本（Win10 的 acrylic 有黑边，需区分 Win10/11）
+winreg = "0.10"
 # DPAPI：配置组里的 API Key 按当前用户密钥加密后再落盘，配置文件被同步/备份/误分享
 # 时 token 不会跟着裸奔。0.61 是依赖树里已有的版本，不额外引入新的 windows-sys
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Security_Cryptography",
 ] }
-
