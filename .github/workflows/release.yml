@@ -1,0 +1,89 @@
+name: Release
+
+# 打 tag 触发。发布流程以前全靠手工（build → 签名 → 手写 latest.json → 传三个附件），
+# 每一步都能悄无声息地做错，而做错的表现是「更新通道静默失效」——没人会来报，
+# 用户只是再也收不到更新。
+on:
+  push:
+    tags: ["v*"]
+
+# 创建 release 需要写权限
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.15.9 --activate
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 更新器比对的是 tauri.conf.json 里的版本。三处版本号只要有一处对不上 tag，
+      # 用户就会被告知「已是最新」而实际不是，或者反过来。手工发版时这是最容易漏的一步，
+      # 交给 CI 强制检查
+      - name: Verify version matches tag
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg=$(node -p "require('./package.json').version")
+          conf=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          cargo=$(grep -m1 '^version = ' src-tauri/Cargo.toml | sed 's/.*"\(.*\)"/\1/')
+          echo "tag=$tag package.json=$pkg tauri.conf.json=$conf Cargo.toml=$cargo"
+          for v in "$pkg" "$conf" "$cargo"; do
+            if [ "$v" != "$tag" ]; then
+              echo "::error::版本号与 tag 不一致 —— tag=$tag, package.json=$pkg, tauri.conf.json=$conf, Cargo.toml=$cargo"
+              exit 1
+            fi
+          done
+
+      - name: Build, sign and draft release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 本地发版传的是密钥文件路径；CI 里 secret 存的是密钥内容本身。
+          # 两种形式 tauri 都接受，别把它们搞混
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Brace ${{ github.ref_name }}
+          # 草稿发布是有意的安全阀：草稿不参与 releases/latest 解析，
+          # 所以在你亲自检查并点下 Publish 之前，更新器不会把它推给任何人
+          releaseDraft: true
+          prerelease: false
+
+      # tauri-action 负责生成 latest.json，但这件事不能想当然——
+      # tauri CLI 自己是不产出这个文件的（Tauri 1 会，Tauri 2 不会）。
+      # 缺了它，更新端点直接 404，而且是静默失效。这里显式验一遍，缺了就让流水线红。
+      - name: Verify release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          assets=$(gh release view "$GITHUB_REF_NAME" --json assets -q '.assets[].name')
+          echo "已上传的附件："
+          echo "$assets"
+          for required in "latest.json" "x64-setup.exe" "x64-setup.exe.sig"; do
+            if ! echo "$assets" | grep -q "$required"; then
+              echo "::error::release 里缺少 $required —— 不要发布这个草稿，先查明原因"
+              exit 1
+            fi
+          done
+          echo "附件齐全。草稿已就绪，去 Releases 页面检查后手动 Publish。"
