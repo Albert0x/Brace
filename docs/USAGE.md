@@ -211,7 +211,22 @@ The `🔑` badge in the status bar shows the active profile. Click it to switch,
 - Locked values are encrypted with **Windows DPAPI under your user account** before hitting disk, so a config file that gets synced to cloud storage or shared by accident is not readable by anyone else.
 - The file lives at `%APPDATA%\com.brace.dev\profiles.json`. Because encryption is tied to your Windows account, **copying it to another machine will not carry the secrets over** — you'll re-enter them there.
 - Plaintext secrets exist only in memory at write and inject time. The UI never echoes them back, it only shows "saved" or "not set".
-- Renaming a variable that already holds a secret detaches it from the stored value, so the field flips back to "not set" to prompt you to re-enter it.
+- If DPAPI is unavailable for any reason, values fall back to plaintext **and the panel says so**. It will not claim an encryption that did not happen.
+- Renaming a variable that holds a secret **discards the stored value**. The field flips to "not set" and the old ciphertext is dropped when you save, so the panel and the file on disk never disagree. Renaming means re-entering.
+
+### Coexisting with CC Switch and similar tools
+
+CC Switch and tools like it work by **rewriting Claude's or Codex's config
+files**. Brace injects **environment variables** instead — and environment
+variables win over config files.
+
+> A terminal opened in Brace uses **Brace's** active profile, overriding
+> whatever provider you just selected in CC Switch.
+
+So if you switch providers in CC Switch and the `claude` running inside Brace
+still talks to the old endpoint, this is why. Pick one place to manage
+credentials, or set Brace's profile to **Off** so it injects nothing and the
+config file wins.
 
 ---
 
