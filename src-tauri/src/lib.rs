@@ -72,8 +72,40 @@ const CMD_INJECT: &str = "cls & prompt $E]9;9;$P$E\\$P$G \r";
 // Git Bash：PROMPT_COMMAND 每次提示符前 printf 出 OSC 9;9；pwd -W 取 Windows 路径喂文件树
 const BASH_INJECT: &str =
     "export PROMPT_COMMAND='printf \"\\033]9;9;%s\\033\\\\\" \"$(pwd -W 2>/dev/null || pwd)\"'\r";
+// zsh：每次提示符前上报当前目录，供文件树联动。
+const ZSH_INJECT: &str =
+    "autoload -Uz add-zsh-hook; _brace_pwd_osc() { printf '\\033]9;9;%s\\033\\\\' \"$PWD\"; }; add-zsh-hook precmd _brace_pwd_osc; clear\r";
 
-// 新建一个终端会话。shell_path 为空回退 powershell.exe；shell_type 决定是否注入 cwd 上报。
+fn default_shell_path() -> String {
+    #[cfg(target_os = "windows")]
+    {
+        "powershell.exe".to_string()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
+    }
+}
+
+fn shell_type_from_path(path: &str) -> String {
+    let name = Path::new(path)
+        .file_name()
+        .map(|s| s.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    if name.contains("powershell") || name == "pwsh.exe" || name == "pwsh" {
+        "powershell".into()
+    } else if name == "cmd.exe" || name == "cmd" {
+        "cmd".into()
+    } else if name.contains("zsh") {
+        "zsh".into()
+    } else if name.contains("bash") {
+        "bash".into()
+    } else {
+        "sh".into()
+    }
+}
+
+// 新建一个终端会话。shell_path 为空时使用系统默认 shell；shell_type 决定是否注入 cwd 上报。
 // 参数偏多，但这是 IPC 契约：tauri command 的入参按名字从前端对象里取，
 // 打包成结构体只会让前端调用多一层嵌套，换不来实际可读性
 #[allow(clippy::too_many_arguments)]
@@ -98,16 +130,24 @@ fn pty_create(
         })
         .map_err(|e| e.to_string())?;
 
-    let exe = if shell_path.trim().is_empty() {
-        "powershell.exe".to_string()
+    let use_default_shell = shell_path.trim().is_empty();
+    let exe = if use_default_shell {
+        default_shell_path()
     } else {
         shell_path
+    };
+    let effective_shell_type = if shell_type == "default" || use_default_shell {
+        shell_type_from_path(&exe)
+    } else {
+        shell_type
     };
     let mut cmd = CommandBuilder::new(&exe);
     let start_dir = if !cwd.trim().is_empty() {
         cwd
     } else {
-        std::env::var("USERPROFILE").unwrap_or_default()
+        std::env::var("USERPROFILE")
+            .or_else(|_| std::env::var("HOME"))
+            .unwrap_or_default()
     };
     if !start_dir.is_empty() {
         cmd.cwd(start_dir);
@@ -127,10 +167,11 @@ fn pty_create(
     let mut writer = pair.master.take_writer().map_err(|e| e.to_string())?;
 
     // 按 shell 类型注入对应的 cwd 上报 prompt
-    let inject = match shell_type.as_str() {
+    let inject = match effective_shell_type.as_str() {
         "powershell" => POWERSHELL_INJECT,
         "cmd" => CMD_INJECT,
         "bash" => BASH_INJECT,
+        "zsh" => ZSH_INJECT,
         _ => "",
     };
     if !inject.is_empty() {
@@ -728,7 +769,7 @@ struct ShellInfo {
     id: String,
     name: String,
     path: String,
-    shell_type: String, // powershell | cmd | bash
+    shell_type: String, // powershell | cmd | bash | zsh | sh
 }
 
 // 在 PATH 中查找可执行文件
@@ -743,64 +784,87 @@ fn which(exe: &str) -> Option<String> {
     None
 }
 
+fn push_shell(shells: &mut Vec<ShellInfo>, id: &str, name: &str, path: String, shell_type: &str) {
+    if shells.iter().any(|s| s.path == path) {
+        return;
+    }
+    shells.push(ShellInfo {
+        id: id.into(),
+        name: name.into(),
+        path,
+        shell_type: shell_type.into(),
+    });
+}
+
 // 检测系统里可用的 shell
 #[tauri::command]
 fn detect_shells() -> Vec<ShellInfo> {
     let mut shells = Vec::new();
 
-    if let Some(p) = which("powershell.exe") {
-        shells.push(ShellInfo {
-            id: "powershell".into(),
-            name: "Windows PowerShell".into(),
-            path: p,
-            shell_type: "powershell".into(),
-        });
-    }
-    if let Some(p) = which("pwsh.exe") {
-        shells.push(ShellInfo {
-            id: "pwsh".into(),
-            name: "PowerShell 7".into(),
-            path: p,
-            shell_type: "powershell".into(),
-        });
-    }
-    if let Some(p) = which("cmd.exe") {
-        shells.push(ShellInfo {
-            id: "cmd".into(),
-            name: "Command Prompt".into(),
-            path: p,
-            shell_type: "cmd".into(),
-        });
-    }
-    // Git Bash：先从 git.exe 反推安装根（<root>\cmd\git.exe → <root>\bin\bash.exe），
-    // 不管 Git 装哪都能找到；找不到再退回标准路径
-    let mut bash_path: Option<String> = None;
-    if let Some(git) = which("git.exe") {
-        if let Some(root) = std::path::Path::new(&git).parent().and_then(|p| p.parent()) {
-            let b = root.join("bin").join("bash.exe");
-            if b.is_file() {
-                bash_path = Some(b.to_string_lossy().to_string());
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(p) = which("powershell.exe") {
+            push_shell(
+                &mut shells,
+                "powershell",
+                "Windows PowerShell",
+                p,
+                "powershell",
+            );
+        }
+        if let Some(p) = which("pwsh.exe") {
+            push_shell(&mut shells, "pwsh", "PowerShell 7", p, "powershell");
+        }
+        if let Some(p) = which("cmd.exe") {
+            push_shell(&mut shells, "cmd", "Command Prompt", p, "cmd");
+        }
+        // Git Bash：先从 git.exe 反推安装根（<root>\cmd\git.exe → <root>\bin\bash.exe），
+        // 不管 Git 装哪都能找到；找不到再退回标准路径
+        let mut bash_path: Option<String> = None;
+        if let Some(git) = which("git.exe") {
+            if let Some(root) = std::path::Path::new(&git).parent().and_then(|p| p.parent()) {
+                let b = root.join("bin").join("bash.exe");
+                if b.is_file() {
+                    bash_path = Some(b.to_string_lossy().to_string());
+                }
             }
         }
+        if bash_path.is_none() {
+            for cand in [
+                "C:\\Program Files\\Git\\bin\\bash.exe",
+                "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
+            ] {
+                if std::path::Path::new(cand).is_file() {
+                    bash_path = Some(cand.to_string());
+                    break;
+                }
+            }
+        }
+        if let Some(bp) = bash_path {
+            push_shell(&mut shells, "gitbash", "Git Bash", bp, "bash");
+        }
     }
-    if bash_path.is_none() {
-        for cand in [
-            "C:\\Program Files\\Git\\bin\\bash.exe",
-            "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(shell) = std::env::var("SHELL") {
+            let shell_type = shell_type_from_path(&shell);
+            let name = match shell_type.as_str() {
+                "zsh" => "Zsh",
+                "bash" => "Bash",
+                _ => "Login Shell",
+            };
+            push_shell(&mut shells, "default", name, shell, &shell_type);
+        }
+        for (id, name, path, shell_type) in [
+            ("zsh", "Zsh", "/bin/zsh", "zsh"),
+            ("bash", "Bash", "/bin/bash", "bash"),
+            ("sh", "sh", "/bin/sh", "sh"),
         ] {
-            if std::path::Path::new(cand).is_file() {
-                bash_path = Some(cand.to_string());
-                break;
+            if Path::new(path).is_file() {
+                push_shell(&mut shells, id, name, path.to_string(), shell_type);
             }
         }
-    }
-    if let Some(bp) = bash_path {
-        shells.push(ShellInfo {
-            id: "gitbash".into(),
-            name: "Git Bash".into(),
-            path: bp,
-            shell_type: "bash".into(),
-        });
     }
 
     shells
@@ -1840,11 +1904,11 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(PtyManager::default())
         .manage(FsWatcher::default())
-        .setup(|app| {
+        .setup(|_app| {
             #[cfg(target_os = "windows")]
             {
                 use window_vibrancy::apply_acrylic;
-                if let Some(window) = app.get_webview_window("main") {
+                if let Some(window) = _app.get_webview_window("main") {
                     // 只有 Win11 才上 acrylic；Win10 的 acrylic 边缘有黑边、拖动卡，
                     // 退回普通背景层（窗口正常，只是少了那层毛玻璃）
                     if is_win11() {

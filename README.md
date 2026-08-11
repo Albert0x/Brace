@@ -72,7 +72,9 @@ rewrite the lockfile and introduce unrelated dependency changes.
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm tauri dev
+pnpm desktop:dev
+# macOS (explicitly loads the native title-bar configuration)
+pnpm desktop:dev:macos
 ```
 
 Frontend-only development is available with `pnpm dev`, but PTY, filesystem,
@@ -85,10 +87,12 @@ Every change must pass the checks relevant to the modified code:
 ```bash
 pnpm build
 cargo check --locked --manifest-path src-tauri/Cargo.toml
-pnpm tauri build
+pnpm desktop:build
+# macOS
+pnpm desktop:build:macos
 ```
 
-`pnpm tauri build` is required before publishing a platform package. A frontend
+`pnpm desktop:build` is required before publishing a platform package. A frontend
 build alone does not prove that native terminal behavior works.
 
 ## Project Structure
