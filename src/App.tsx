@@ -209,14 +209,22 @@ function App() {
   const bashQuote = (path: string) => `'${path.replace(/'/g, "'\\''")}'`;
   const cmdQuote = (path: string) => `"${path}"`;
 
+  // 这个标签的 shell 是不是 POSIX 系。
+  //
+  // "default" 的含义是「交给后端按系统默认 shell 推断」，前端拿不到推断结果，
+  // 只能按平台猜——而 Windows 上默认是 PowerShell，绝不能归进 POSIX：
+  // bashQuote 的单引号转义是 '\''，PowerShell 要的是 ''，含单引号的路径会直接出错。
+  // cd/cat 在 PowerShell 里恰好是 Set-Location/Get-Content 的别名，所以命令本身
+  // 侥幸能跑，只有引号会露馅——正因为这样才更容易漏掉
+  const isPosixShell = (st: string) =>
+    st === "bash" || st === "zsh" || st === "sh" || (st === "default" && isMac);
+
   // 往当前标签发一条命令，按它用的 shell 选语法
   const runInActiveShell = (
     build: (q: (p: string) => string, shellType: string) => string,
   ) => {
     const st = tabs.find((x) => x.id === activeId)?.shellType ?? "default";
-    const isPosix = st === "bash" || st === "zsh" || st === "sh" || st === "default";
-    const quote =
-      st === "cmd" ? cmdQuote : isPosix ? bashQuote : psQuote;
+    const quote = st === "cmd" ? cmdQuote : isPosixShell(st) ? bashQuote : psQuote;
     invoke("pty_write", { id: activeId, data: build(quote, st) + "\r" }).catch(
       console.error,
     );
@@ -226,7 +234,7 @@ function App() {
     runInActiveShell((q, st) =>
       st === "cmd"
         ? `cd /d ${q(path)}`
-        : st === "bash" || st === "zsh" || st === "sh" || st === "default"
+        : isPosixShell(st)
           ? `cd ${q(path)}`
           : `Set-Location -LiteralPath ${q(path)}`,
     );
@@ -236,7 +244,7 @@ function App() {
     runInActiveShell((q, st) =>
       st === "cmd"
         ? `type ${q(path)}`
-        : st === "bash" || st === "zsh" || st === "sh" || st === "default"
+        : isPosixShell(st)
           ? `cat ${q(path)}`
           : `Get-Content -LiteralPath ${q(path)}`,
     );
