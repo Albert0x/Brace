@@ -135,8 +135,9 @@ export default function ProfilePanel({ onChanged }: { onChanged: () => void }) {
         const i = next.findIndex(
           (v) => v.key.trim().toUpperCase() === key,
         );
-        if (i >= 0) next[i] = { ...next[i], value: proxy };
-        else next.push({ ...V(key), value: proxy });
+        // 这是在替用户填值，和他自己敲进去等价，得标成已编辑
+        if (i >= 0) next[i] = { ...next[i], value: proxy, valueEdited: true };
+        else next.push({ ...V(key), value: proxy, valueEdited: true });
       }
       return next;
     });
@@ -237,26 +238,28 @@ export default function ProfilePanel({ onChanged }: { onChanged: () => void }) {
                   value={v.key}
                   spellCheck={false}
                   placeholder={t("profiles.keyPlaceholder")}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const nextKey = e.target.value;
                     setVars((vars) =>
-                      vars.map((x, j) =>
-                        j === i
-                          ? {
-                              ...x,
-                              key: e.target.value,
-                              // 后端是按 (配置组, 变量名) 找回已存密文的，改了名就对不上了。
-                              // 与其让用户以为密钥还在、保存后变成空值，不如立刻显示
-                              // "未设置"，把要重填这件事摆到明面上
-                              hasValue: x.hasValue && x.key === e.target.value,
-                              // 名字看着像密钥就自动上锁，用户仍可手动切回来
-                              secret: x.hasValue
-                                ? x.secret
-                                : SECRET_HINT.test(e.target.value),
-                            }
-                          : x,
-                      ),
-                    )
-                  }
+                      vars.map((x, j) => {
+                        if (j !== i) return x;
+                        const renamed = x.key !== nextKey;
+                        return {
+                          ...x,
+                          key: nextKey,
+                          // 改名按「删旧建新」处理：旧密文跟着旧名字一起作废。
+                          // 界面立刻显示"未设置"，valueEdited 则保证保存时真的把它清掉——
+                          // 少了这一半，用户改完名再改回来，界面说没有、磁盘上却还留着
+                          hasValue: x.hasValue && !renamed,
+                          valueEdited: x.valueEdited || renamed,
+                          // 名字看着像密钥就自动上锁，用户仍可手动切回来
+                          secret: x.hasValue
+                            ? x.secret
+                            : SECRET_HINT.test(nextKey),
+                        };
+                      }),
+                    );
+                  }}
                 />
                 <input
                   className="prof-value"
@@ -274,7 +277,9 @@ export default function ProfilePanel({ onChanged }: { onChanged: () => void }) {
                   onChange={(e) =>
                     setVars((vars) =>
                       vars.map((x, j) =>
-                        j === i ? { ...x, value: e.target.value } : x,
+                        j === i
+                          ? { ...x, value: e.target.value, valueEdited: true }
+                          : x,
                       ),
                     )
                   }

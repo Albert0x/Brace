@@ -6,7 +6,8 @@ export type Lang = "en" | "zh";
 export const MESSAGES: Record<Lang, Record<string, string>> = {
   en: {
     // 顶栏 / 状态栏 / 主区
-    "search.placeholder": "Search ({mod}F)",
+    "search.placeholder": "Search terminal output ({mod}F)",
+    "search.none": "no match",
     "tab.new": "New tab ({mod}T)",
     "tab.close": "Close tab ({mod}W)",
     "tab.selectShell": "Select shell",
@@ -16,8 +17,15 @@ export const MESSAGES: Record<Lang, Record<string, string>> = {
     "win.close": "Close",
     "main.empty": "No terminal. Click ＋ or press {mod}T to open one.",
     "term.spawnFailed": "Failed to start shell: {e}",
+    "term.imageInClipboard":
+      "The clipboard holds an image. A terminal can only paste text — press Alt+V to send it to Claude.",
+    "term.exited":
+      "[process exited with code {code}] Press Enter to start a new shell here.",
+    "tab.exitedTitle": "Shell exited — press Enter in the terminal to restart",
     "status.terminals": "{n} terminal(s)",
     "usage.context": "Context",
+    "usage.contextUnavailable":
+      "Context usage is unavailable — the status line cache has no context field. This is not 0%; it is unknown.",
     "usage.win5h": "5h",
     "usage.win7d": "7d",
     "usage.prompt": "Claude detected — show usage?",
@@ -35,6 +43,7 @@ export const MESSAGES: Record<Lang, Record<string, string>> = {
       "This replaces the existing statusLine — its status bar will stop working. Continue?",
     // 侧栏 / 文件树
     "sidebar.refresh": "Refresh",
+    "sidebar.resize": "Drag to resize",
     "tree.enterDir": "Double-click to enter: {path}",
     // 终端右键菜单
     "ctx.copy": "Copy",
@@ -77,6 +86,8 @@ export const MESSAGES: Record<Lang, Record<string, string>> = {
     "git.committing": "Committing…",
     "git.committed": "Committed.",
     "git.pushed": "Committed & pushed.",
+    "git.committedPushFailed":
+      "Committed locally — but the push failed, so don't commit again. Push it yourself once the cause is fixed.\n{e}",
     // 设置面板 tab
     "settings.general": "General",
     "settings.themes": "Themes",
@@ -103,6 +114,9 @@ export const MESSAGES: Record<Lang, Record<string, string>> = {
     "general.commitTypesDesc":
       "Types offered in the commit panel, comma separated. Empty falls back to the defaults.",
     "general.terminal": "Terminal",
+    "general.scrollback": "Scrollback",
+    "general.scrollbackDesc":
+      "Lines of history kept per terminal. Larger uses more memory; lowering it discards history you already have.",
     "general.webgl": "WebGL renderer",
     "general.webglDesc": "GPU acceleration; turn off if text corrupts (applies to new terminals).",
     "general.cursorBlink": "Cursor blinking",
@@ -182,7 +196,8 @@ export const MESSAGES: Record<Lang, Record<string, string>> = {
     "status.profile": "Active profile — click to switch",
   },
   zh: {
-    "search.placeholder": "搜索 ({mod}F)",
+    "search.placeholder": "搜索终端输出 ({mod}F)",
+    "search.none": "无匹配",
     "tab.new": "新建标签 ({mod}T)",
     "tab.close": "关闭标签 ({mod}W)",
     "tab.selectShell": "选择 Shell",
@@ -192,8 +207,14 @@ export const MESSAGES: Record<Lang, Record<string, string>> = {
     "win.close": "关闭",
     "main.empty": "没有终端，点右上角 ＋ 或按 {mod}T 新建。",
     "term.spawnFailed": "启动 shell 失败：{e}",
+    "term.imageInClipboard":
+      "剪贴板里是图片。终端只能粘贴文本——发给 Claude 请按 Alt+V。",
+    "term.exited": "[进程已退出，退出码 {code}] 按 Enter 在当前目录重新启动。",
+    "tab.exitedTitle": "shell 已退出——在终端里按 Enter 可重启",
     "status.terminals": "{n} 个终端",
     "usage.context": "上下文",
+    "usage.contextUnavailable":
+      "上下文用量读不到——statusline 缓存里没有这个字段。这不是 0%，是未知。",
     "usage.win5h": "5h 用量",
     "usage.win7d": "7d 用量",
     "usage.prompt": "检测到 Claude — 开启用量?",
@@ -208,6 +229,7 @@ export const MESSAGES: Record<Lang, Record<string, string>> = {
     "usage.takeover": "强制接管",
     "usage.takeoverConfirm": "这会替换已有的 statusLine（它的状态栏会失效）。继续？",
     "sidebar.refresh": "刷新",
+    "sidebar.resize": "拖动调整宽度",
     "tree.enterDir": "双击进入：{path}",
     "ctx.copy": "复制",
     "ctx.paste": "粘贴",
@@ -249,6 +271,8 @@ export const MESSAGES: Record<Lang, Record<string, string>> = {
     "git.committing": "提交中…",
     "git.committed": "已提交。",
     "git.pushed": "已提交并推送。",
+    "git.committedPushFailed":
+      "本地已提交成功，但推送失败——不要再提交一次。排除原因后自己推一下即可。\n{e}",
     "settings.general": "常规",
     "settings.themes": "主题",
     "settings.profiles": "配置组",
@@ -271,6 +295,9 @@ export const MESSAGES: Record<Lang, Record<string, string>> = {
     "general.commitTypes": "提交类型",
     "general.commitTypesDesc": "提交面板里可选的类型，逗号分隔。留空则用默认列表。",
     "general.terminal": "终端",
+    "general.scrollback": "回看行数",
+    "general.scrollbackDesc":
+      "每个终端保留的历史行数。调大更占内存；调小会立刻丢弃已有的回看内容。",
     "general.webgl": "WebGL 渲染",
     "general.webglDesc": "GPU 加速；文字花屏时可关（对新终端生效）。",
     "general.cursorBlink": "光标闪烁",

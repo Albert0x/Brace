@@ -18,11 +18,14 @@ interface Props {
   fontSize: number;
   cursorBlink: boolean;
   webgl: boolean;
+  scrollback: number;
   shellPath: string;
   shellType: string;
   onRegisterSearch: (id: string, addon: SearchAddon) => void;
   onUnregisterSearch: (id: string) => void;
   debugInput: boolean;
+  onExit: (sessionId: string, code: number | null) => void;
+  onRestarted: (sessionId: string) => void;
 }
 
 // 终端视图：一个实例对应后端一个 pty 会话
@@ -35,15 +38,23 @@ export default function TerminalView({
   fontSize,
   cursorBlink,
   webgl,
+  scrollback,
   shellPath,
   shellType,
   onRegisterSearch,
   onUnregisterSearch,
   debugInput,
+  onExit,
+  onRestarted,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  // 进程是否已经退出。走 ref 是因为 onData 回调建立在首次渲染的闭包里，
+  // 读 state 只会读到那一刻的旧值
+  const exitedRef = useRef(false);
+  // 退出前最后上报的目录。重启时回到这里，而不是把用户丢回 home
+  const lastCwdRef = useRef(initialCwd);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const t = useT();
 
@@ -54,16 +65,34 @@ export default function TerminalView({
   debugRef.current = debugInput;
   const debugBuf = useRef<string[]>([]);
 
+  // 剪贴板里是图片时给一行提示。终端本身没有显示图片的能力，
+  // 但至少不能像以前那样「按了粘贴，什么都没发生，也不说为什么」
+  const noticeImageInClipboard = () => {
+    termRef.current?.write(
+      `\r\n\x1b[33m${t("term.imageInClipboard")}\x1b[0m\r\n`,
+    );
+  };
+
   const paste = () => {
     navigator.clipboard
       .readText()
-      .then((text) => {
+      .then(async (text) => {
         if (text) {
           // 用 xterm 的 paste 而非裸 pty_write：自动带 bracketed paste 包裹，
           // 让 claude/vim 等能区分"粘贴"与"手动键入"（多行不会被逐行执行），
           // 并把焦点拉回终端，粘完能直接回车。
           termRef.current?.paste(text);
           termRef.current?.focus();
+          return;
+        }
+        // 文本为空有两种可能：剪贴板真的空着，或者里面是图片——
+        // readText() 对图片就是返回空串。区分一下，后者给提示
+        try {
+          const items = await navigator.clipboard.read();
+          if (items.some((it) => it.types.some((ty) => ty.startsWith("image/"))))
+            noticeImageInClipboard();
+        } catch {
+          // 读剪贴板要权限，拿不到就算了。宁可不提示也不要误报
         }
       })
       .catch(() => {});
@@ -98,6 +127,7 @@ export default function TerminalView({
       allowTransparency: true,
       fontFamily: "'Cascadia Mono', Consolas, 'Courier New', monospace",
       fontSize,
+      scrollback,
       theme: termTheme,
     });
     const fit = new FitAddon();
@@ -151,16 +181,58 @@ export default function TerminalView({
 
     term.parser.registerOscHandler(9, (data) => {
       if (data.startsWith("9;")) {
-        onCwd(sessionId, data.slice(2));
+        const path = data.slice(2);
+        lastCwdRef.current = path;
+        onCwd(sessionId, path);
         return true;
       }
       return false;
     });
 
+    // 原地重启：复用同一个 sessionId 和同一个 xterm 实例，
+    // 所以之前的输出全都留在屏幕上——那正是排查「它为什么挂了」时要看的东西
+    const restart = () => {
+      invoke("pty_create", {
+        id: sessionId,
+        rows: term.rows,
+        cols: term.cols,
+        cwd: lastCwdRef.current || initialCwd,
+        shellPath,
+        shellType,
+      })
+        .then(() => {
+          exitedRef.current = false;
+          onRestarted(sessionId);
+          term.focus();
+        })
+        .catch((e) => {
+          term.write(
+            `\r\n\x1b[31m${t("term.spawnFailed", { e: String(e) })}\x1b[0m\r\n`,
+          );
+        });
+    };
+
     // 必须等监听器真正注册完再建 PTY，否则 shell 启动瞬间的输出可能在监听器就位前就已发出而丢失
     const unlistenPromise = listen<{ id: string; data: string }>("pty-output", (e) => {
       if (e.payload.id === sessionId) term.write(e.payload.data);
     });
+
+    // shell 退出。后端一直在发这个事件，但以前前端没有任何人在听，
+    // 于是用户面对的是一个能打字、却永远不回话的黑框
+    const unlistenExitPromise = listen<{ id: string; code: number | null }>(
+      "pty-exit",
+      (e) => {
+        if (e.payload.id !== sessionId) return;
+        exitedRef.current = true;
+        const code = e.payload.code ?? null;
+        term.write(
+          `\r\n\x1b[33m${t("term.exited", {
+            code: code === null ? "?" : String(code),
+          })}\x1b[0m\r\n`,
+        );
+        onExit(sessionId, code);
+      },
+    );
     unlistenPromise.then(() => {
       if (disposed) return;
       invoke("pty_create", {
@@ -206,10 +278,26 @@ export default function TerminalView({
         `key=${JSON.stringify(e.key)} code=${e.code} keyCode=${e.keyCode} textarea=${taValue()}`,
       );
     };
+    // Ctrl+Shift+V 是交给 WebView 原生 paste 事件处理的（见上面的按键处理器），
+    // 走不到上面那个 paste()。图片在这条路径上同样是「按了没反应」，得单独拦。
+    // ClipboardEvent 自带 clipboardData，不需要剪贴板读取权限
+    const onPasteEvent = (e: ClipboardEvent) => {
+      const dt = e.clipboardData;
+      if (!dt) return;
+      const types = Array.from(dt.types);
+      if (
+        !types.includes("text/plain") &&
+        types.some((ty) => ty.startsWith("image/"))
+      ) {
+        noticeImageInClipboard();
+      }
+    };
+
     ta?.addEventListener("compositionstart", onComposition);
     ta?.addEventListener("compositionupdate", onComposition);
     ta?.addEventListener("compositionend", onComposition);
     ta?.addEventListener("keydown", onKeyDown);
+    ta?.addEventListener("paste", onPasteEvent);
 
     // 攒一秒写一次盘：keydown 很密，每条一次 IPC 会把通道占满
     const flushDebug = () => {
@@ -220,6 +308,12 @@ export default function TerminalView({
 
     term.onData((data) => {
       rec("onData", JSON.stringify(data));
+      // 进程已经没了，不再往死管道里灌数据。回车 = 原地重启（提示里写了），
+      // 其余按键直接吞掉——总好过让用户对着一个不会有任何反应的黑框空敲
+      if (exitedRef.current) {
+        if (data === "\r") restart();
+        return;
+      }
       invoke("pty_write", { id: sessionId, data }).catch(console.error);
     });
 
@@ -241,12 +335,18 @@ export default function TerminalView({
       ta?.removeEventListener("compositionupdate", onComposition);
       ta?.removeEventListener("compositionend", onComposition);
       ta?.removeEventListener("keydown", onKeyDown);
+      ta?.removeEventListener("paste", onPasteEvent);
       window.removeEventListener("resize", syncSize);
       unlistenPromise.then((f) => f());
+      unlistenExitPromise.then((f) => f());
       onUnregisterSearch(sessionId);
       invoke("pty_close", { id: sessionId }).catch(() => {});
       term.dispose();
     };
+    // 依赖只留 sessionId 是有意的：这个 effect 重跑等于 dispose 终端 + kill PTY 会话，
+    // 为了一个主题色或字号变化就把用户的 shell 干掉完全说不通。其余 props 各自有
+    // 单独的 effect 做增量同步（见下方），只有 webgl 例外——它标注了「对新终端生效」
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
   useEffect(() => {
@@ -258,6 +358,12 @@ export default function TerminalView({
     if (termRef.current) termRef.current.options.cursorBlink = cursorBlink;
   }, [cursorBlink]);
 
+  // 回看行数实时生效。调小时 xterm 会立刻裁掉超出的历史，所以设置面板里
+  // 要写清楚「调小会丢弃已有回看」，别让用户手一滑就把上文弄没了
+  useEffect(() => {
+    if (termRef.current) termRef.current.options.scrollback = scrollback;
+  }, [scrollback]);
+
   // 字体大小变化 → 应用并重新适配
   useEffect(() => {
     const t = termRef.current;
@@ -267,7 +373,8 @@ export default function TerminalView({
     invoke("pty_resize", { id: sessionId, rows: t.rows, cols: t.cols }).catch(
       console.error,
     );
-  }, [fontSize]);
+    // sessionId 在组件生命周期内不变（它就是 key），列进依赖只是让 lint 满意，不改行为
+  }, [fontSize, sessionId]);
 
   useEffect(() => {
     if (!active || !termRef.current || !fitRef.current) return;

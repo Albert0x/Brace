@@ -132,7 +132,15 @@ export default function StatusBar({
         {usage && usage.agent && usage.hasData && (
           <div className="usage">
             {usage.model && <span className="usage-model">{usage.model}</span>}
-            <UsageMeter label={t("usage.context")} pct={usage.contextPct} />
+            {/* 读不到就不画。画一个 0% 出来等于告诉用户「上下文还没开始用」，
+                而事实是我们根本不知道 */}
+            {usage.hasContext ? (
+              <UsageMeter label={t("usage.context")} pct={usage.contextPct} />
+            ) : (
+              <span className="usage-unavailable" title={t("usage.contextUnavailable")}>
+                {t("usage.context")} —
+              </span>
+            )}
             {usage.agent === "claude" && usage.hasRateLimits && (
               <>
                 <UsageMeter

@@ -3,9 +3,13 @@ import { invoke } from "@tauri-apps/api/core";
 
 export interface ProfileVar {
   key: string;
-  value: string; // secret 的值后端不回传，这里为空就表示"没改"
+  value: string; // secret 的值后端不回传，加载时恒为空
   secret: boolean;
-  hasValue: boolean;
+  hasValue: boolean; // 后端那边这一项已经存了值
+  // 用户动过这一行的值没有（改 value 或改变量名都算）。
+  // 没动过的 secret 保存时传 null，让后端沿用旧密文；动过就按字面值处理，
+  // 空字符串即「清空」。少了这个标记，「没改」和「清空」在传输层是同一个值
+  valueEdited?: boolean;
 }
 
 export interface Profile {
@@ -29,7 +33,7 @@ export const EMPTY_STORE: ProfileStore = {
 export const loadProfiles = () =>
   invoke<ProfileStore>("load_profiles").catch(() => EMPTY_STORE);
 
-// 保存时只回传后端认识的字段，hasValue 是纯展示用的
+// 保存时只回传后端认识的字段，hasValue / valueEdited 是纯前端的
 export const saveProfiles = (store: ProfileStore) =>
   invoke("save_profiles", {
     store: {
@@ -39,7 +43,12 @@ export const saveProfiles = (store: ProfileStore) =>
         name: p.name,
         vars: p.vars
           .filter((v) => v.key.trim())
-          .map((v) => ({ key: v.key.trim(), value: v.value, secret: v.secret })),
+          .map((v) => ({
+            key: v.key.trim(),
+            // 没动过的 secret 传 null = 「沿用你那边存的」。传空串是另一个意思：清空
+            value: v.secret && !v.valueEdited ? null : v.value,
+            secret: v.secret,
+          })),
       })),
     },
   });
