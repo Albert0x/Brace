@@ -28,7 +28,69 @@ interface ShellInfo {
   shell_type: string;
 }
 
-function App() {
+function SettingsWindow() {
+  const [langRaw, setLang] = usePersistedString("ht-lang", "en");
+  const lang = langRaw as Lang;
+  const t = useMemo(() => createT(lang), [lang]);
+  const appearanceState = useAppearance();
+  const [showHidden, setShowHidden] = usePersistedBool("ht-hidden", false);
+  const [gitDeco, setGitDeco] = usePersistedBool("ht-gitdeco", false);
+  const [webgl, setWebgl] = usePersistedBool("ht-webgl", true);
+  const [cursorBlink, setCursorBlink] = usePersistedBool("ht-cursor", true);
+  const [debugInput, setDebugInput] = usePersistedBool("ht-debug-input", false);
+  const [commitTypesRaw, setCommitTypesRaw] = usePersistedString(
+    "ht-commit-types",
+    DEFAULT_COMMIT_TYPES,
+  );
+  const profiles = useProfiles();
+  const close = () => getCurrentWindow().close();
+
+  return (
+    <LangContext.Provider value={{ lang, setLang, t }}>
+      <div
+        className="bg-layer"
+        style={{ backgroundImage: appearanceState.bgImage ? `url(${appearanceState.bgImage})` : "none" }}
+      />
+      <div
+        className="bg-overlay"
+        style={{
+          background: appearanceState.effectiveTheme.ui.base,
+          opacity: appearanceState.bgImage ? appearanceState.overlay : 0.78,
+        }}
+      />
+      <SettingsPanel
+        open
+        onClose={close}
+        currentTheme={appearanceState.theme.id}
+        onSelectTheme={appearanceState.setTheme}
+        hasBg={!!appearanceState.bgImage}
+        overlay={appearanceState.overlay}
+        onPickBg={appearanceState.pickBg}
+        onClearBg={() => appearanceState.pickBg("")}
+        onOverlay={appearanceState.setOverlay}
+        appearance={appearanceState.appearance}
+        onAppearance={appearanceState.setAppearance}
+        uiZoom={appearanceState.uiZoom}
+        onUiZoom={appearanceState.setUiZoom}
+        showHidden={showHidden}
+        onShowHidden={setShowHidden}
+        gitDeco={gitDeco}
+        onGitDeco={setGitDeco}
+        webgl={webgl}
+        onWebgl={setWebgl}
+        cursorBlink={cursorBlink}
+        onCursorBlink={setCursorBlink}
+        commitTypes={commitTypesRaw}
+        onCommitTypes={setCommitTypesRaw}
+        debugInput={debugInput}
+        onDebugInput={setDebugInput}
+        onProfilesChanged={profiles.refresh}
+      />
+    </LangContext.Provider>
+  );
+}
+
+function MainApp() {
   // 纯浏览器（README 里说的 pnpm dev frontend-only）没有 __TAURI_INTERNALS__，
   // getCurrentWindow() 会直接抛错崩掉，得先判断环境
   const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -44,13 +106,9 @@ function App() {
 
   // ---- 环境探测 ----
   const [shells, setShells] = useState<ShellInfo[]>([]);
-  const [shellMenu, setShellMenu] = useState(false);
-  const [osVersion, setOsVersion] = useState("");
   const [homeCwd, setHomeCwd] = useState("");
   useEffect(() => {
     invoke<ShellInfo[]>("detect_shells").then(setShells).catch(() => {});
-    // 状态栏显示的真实系统版本（别再假装每个人都是 Win11）
-    invoke<string>("os_version").then(setOsVersion).catch(() => {});
     invoke<string>("home_dir").then(setHomeCwd).catch(() => {});
   }, []);
   const defaultShell =
@@ -74,24 +132,16 @@ function App() {
   } = useTabs(homeCwd);
 
   const {
-    theme,
-    setTheme,
     effectiveTheme,
-    appearance,
-    setAppearance,
-    uiZoom,
-    setUiZoom,
     fontSize,
     setFontSize,
     bgImage,
-    pickBg,
     overlay,
-    setOverlay,
   } = useAppearance();
 
   // 提交类型列表可自定义：默认是 Conventional Commits 通用集，
   // 团队有自己一套词表的直接改这里，不用改代码
-  const [commitTypesRaw, setCommitTypesRaw] = usePersistedString(
+  const [commitTypesRaw] = usePersistedString(
     "ht-commit-types",
     DEFAULT_COMMIT_TYPES,
   );
@@ -101,19 +151,18 @@ function App() {
   );
 
   // 输入诊断开关。持久化是有意的：用户重启 Brace 复现问题时不该又被关掉
-  const [debugInput, setDebugInput] = usePersistedBool("ht-debug-input", false);
+  const [debugInput] = usePersistedBool("ht-debug-input", false);
 
-  const [showHidden, setShowHidden] = usePersistedBool("ht-hidden", false);
-  const [gitDeco, setGitDeco] = usePersistedBool("ht-gitdeco", false);
-  const [webgl, setWebgl] = usePersistedBool("ht-webgl", true);
-  const [cursorBlink, setCursorBlink] = usePersistedBool("ht-cursor", true);
+  const [showHidden] = usePersistedBool("ht-hidden", false);
+  const [gitDeco] = usePersistedBool("ht-gitdeco", false);
+  const [webgl] = usePersistedBool("ht-webgl", true);
+  const [cursorBlink] = usePersistedBool("ht-cursor", true);
 
   const { gitStatus, refresh: refreshGit } = useGitStatus(activeCwd);
   // 这两个整块传给 StatusBar，不在这里解构——它们本来就是各自内聚的一块状态
   const usageState = useUsage(activeId);
   const profiles = useProfiles();
 
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [gitPanelOpen, setGitPanelOpen] = useState(false);
   // 文件预览：单击文件在侧边打开
   const [preview, setPreview] = useState<{ path: string; name: string } | null>(
@@ -133,6 +182,24 @@ function App() {
     },
     [openTab, defaultShell, activeCwd],
   );
+
+  const addConversation = useCallback(async () => {
+    let agent = usageState.usage?.agent;
+    try {
+      const current = await invoke<{ agent: string }>("usage_stats", { sessionId: activeId });
+      agent = current.agent;
+    } catch {
+      // 浏览器预览或检测失败时，仍然创建一个普通终端，不让菜单失效。
+    }
+    const currentTab = tabs.find((tab) => tab.id === activeId);
+    const startupCommand = agent === "claude" || agent === "codex" ? agent : undefined;
+    openTab({
+      cwd: activeCwd,
+      shellPath: currentTab?.shellPath ?? defaultShell?.path ?? "",
+      shellType: currentTab?.shellType ?? defaultShell?.shell_type ?? "default",
+      startupCommand,
+    });
+  }, [activeCwd, activeId, defaultShell, openTab, tabs, usageState.usage?.agent]);
 
   const closeTab = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -203,13 +270,6 @@ function App() {
     else a.findPrevious(q);
   };
 
-  useEffect(() => {
-    if (!shellMenu) return;
-    const close = () => setShellMenu(false);
-    window.addEventListener("click", close);
-    return () => window.removeEventListener("click", close);
-  }, [shellMenu]);
-
   // 全局快捷键。removeTab / switchTab 由 useTabs 保证引用稳定且内部读的是最新标签列表，
   // 所以这里不用再把 tabs 塞进依赖数组——那正是之前"关掉的标签被 Ctrl+W 复活"的成因
   useEffect(() => {
@@ -268,7 +328,7 @@ function App() {
                 className={"tab" + (tab.id === activeId ? " active" : "")}
                 onClick={() => setActiveId(tab.id)}
               >
-                <span className="tab-dot" />
+                <span className="tab-shell-icon" aria-hidden="true">›_</span>
                 <span className="tab-title" title={cwdMap[tab.id] ?? ""}>
                   {tabLabel(tab)}
                 </span>
@@ -286,37 +346,8 @@ function App() {
 
             <div className="tab-add-group">
               <button className="tab-add" title={t("tab.new", { mod: shortcutMod })} onClick={() => addTab()}>
-                <span className="tab-add-icon" aria-hidden="true">+</span>
+                <span className="tab-add-icon" aria-hidden="true">＋</span>
               </button>
-              {shells.length > 1 && (
-                <button
-                  className="tab-add-caret"
-                  title={t("tab.selectShell")}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShellMenu((v) => !v);
-                  }}
-                >
-                  <span className="tab-caret-icon" aria-hidden="true">⌄</span>
-                </button>
-              )}
-              {shellMenu && (
-                <div className="shell-menu" onClick={(e) => e.stopPropagation()}>
-                  {shells.map((s) => (
-                    <div
-                      className="shell-item"
-                      key={s.id}
-                      onClick={() => {
-                        addTab(s);
-                        setShellMenu(false);
-                      }}
-                    >
-                      <span>{s.name}</span>
-                      <span className="shell-item-type">{s.shell_type}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           </div>
 
@@ -338,11 +369,15 @@ function App() {
               />
             </div>
             <button
-              className="icon-btn"
+              className="icon-btn toolbar-settings-button"
               title={t("toolbar.settings")}
-              onClick={() => setSettingsOpen(true)}
+              aria-label={t("toolbar.settings")}
+              onClick={() => invoke("open_settings_window").catch(console.error)}
             >
-              <span className="settings-icon" aria-hidden="true">⚙︎</span>
+              <svg className="settings-icon" aria-hidden="true" viewBox="0 0 20 20">
+                <path d="M10 7.25a2.75 2.75 0 1 0 0 5.5 2.75 2.75 0 0 0 0-5.5Z" />
+                <path d="M16.42 11.35a6.75 6.75 0 0 0 0-2.7l1.3-1.02-1.5-2.6-1.54.62a6.8 6.8 0 0 0-2.34-1.35L12.1 2.65h-3L8.85 4.3A6.8 6.8 0 0 0 6.5 5.65l-1.53-.62-1.5 2.6 1.3 1.02a6.75 6.75 0 0 0 0 2.7l-1.3 1.02 1.5 2.6 1.53-.62a6.8 6.8 0 0 0 2.35 1.35l.25 1.65h3l.24-1.65a6.8 6.8 0 0 0 2.34-1.35l1.54.62 1.5-2.6-1.3-1.02Z" />
+              </svg>
             </button>
             {!isMac && <div className="win-controls">
               <button className="win-btn" title={t("win.minimize")} onClick={() => appWindow?.minimize()}>
@@ -394,6 +429,10 @@ function App() {
                 onRegisterSearch={registerSearch}
                 debugInput={debugInput}
                 onUnregisterSearch={unregisterSearch}
+                startupCommand={tab.startupCommand}
+                activeAgent={tab.id === activeId ? usageState.usage?.agent ?? "" : ""}
+                onNewTerminal={() => addTab()}
+                onNewConversation={addConversation}
               />
             ))}
             {tabs.length === 0 && (
@@ -410,45 +449,13 @@ function App() {
         </div>
 
         <StatusBar
+          cwd={activeCwd}
           gitStatus={gitStatus}
           onOpenGit={() => setGitPanelOpen(true)}
           profiles={profiles}
           usage={usageState}
-          fontSize={fontSize}
-          tabCount={tabs.length}
-          themeName={theme.name}
-          osVersion={osVersion}
         />
       </div>
-
-      <SettingsPanel
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        currentTheme={theme.id}
-        onSelectTheme={setTheme}
-        hasBg={!!bgImage}
-        overlay={overlay}
-        onPickBg={pickBg}
-        onClearBg={() => pickBg("")}
-        onOverlay={setOverlay}
-        appearance={appearance}
-        onAppearance={setAppearance}
-        uiZoom={uiZoom}
-        onUiZoom={setUiZoom}
-        showHidden={showHidden}
-        onShowHidden={setShowHidden}
-        gitDeco={gitDeco}
-        onGitDeco={setGitDeco}
-        webgl={webgl}
-        onWebgl={setWebgl}
-        cursorBlink={cursorBlink}
-        onCursorBlink={setCursorBlink}
-        commitTypes={commitTypesRaw}
-        debugInput={debugInput}
-        onDebugInput={setDebugInput}
-        onCommitTypes={setCommitTypesRaw}
-        onProfilesChanged={profiles.refresh}
-      />
 
       {gitPanelOpen && (
         <GitPanel
@@ -463,4 +470,8 @@ function App() {
   );
 }
 
-export default App;
+export default function App() {
+  return new URLSearchParams(window.location.search).get("window") === "settings"
+    ? <SettingsWindow />
+    : <MainApp />;
+}

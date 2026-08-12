@@ -9,6 +9,47 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
+#[tauri::command]
+fn open_settings_window(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("settings") {
+        window.show().map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    let builder = tauri::WebviewWindowBuilder::new(
+        &app,
+        "settings",
+        tauri::WebviewUrl::App("index.html?window=settings".into()),
+    )
+    .title("Brace Settings")
+    .inner_size(980.0, 720.0)
+    .min_inner_size(760.0, 560.0)
+    .center()
+    .resizable(true)
+    .decorations(true)
+    .transparent(true);
+
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
+        .traffic_light_position(tauri::LogicalPosition::new(14.0, 18.0));
+
+    let window = builder.build().map_err(|e| e.to_string())?;
+    #[cfg(target_os = "macos")]
+    {
+        use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+        let _ = apply_vibrancy(
+            &window,
+            NSVisualEffectMaterial::WindowBackground,
+            Some(NSVisualEffectState::FollowsWindowActiveState),
+            Some(18.0),
+        );
+    }
+    Ok(())
+}
+
 // 单个终端会话：持有写入端、主控端与可 kill 的子进程句柄
 struct PtySession {
     writer: Box<dyn Write + Send>,
@@ -74,7 +115,26 @@ const BASH_INJECT: &str =
     "export PROMPT_COMMAND='printf \"\\033]9;9;%s\\033\\\\\" \"$(pwd -W 2>/dev/null || pwd)\"'\r";
 // zsh：每次提示符前上报当前目录，供文件树联动。
 const ZSH_INJECT: &str =
-    "autoload -Uz add-zsh-hook; _brace_pwd_osc() { printf '\\033]9;9;%s\\033\\\\' \"$PWD\"; }; add-zsh-hook precmd _brace_pwd_osc; clear\r";
+    "autoload -Uz add-zsh-hook; _brace_pwd_osc() { printf '\\033]9;9;%s\\033\\\\' \"$PWD\"; }; add-zsh-hook precmd _brace_pwd_osc\r";
+
+// Shell 集成是通过 PTY 输入注入的，终端会像用户键入一样回显它。首个 cwd OSC
+// 出现前的内容只属于 shell 启动和注入过程；从 OSC 开始交给前端，既保留目录同步，
+// 又不会让用户看到内部命令。64 KiB 兜底避免异常 shell 永久吞掉输出。
+fn filter_shell_startup(pending: &mut Option<String>, data: String) -> Option<String> {
+    let Some(buf) = pending.as_mut() else {
+        return (!data.is_empty()).then_some(data);
+    };
+    buf.push_str(&data);
+    if let Some(start) = buf.find("\u{1b}]9;9;") {
+        let visible = buf[start..].to_string();
+        *pending = None;
+        return Some(visible);
+    }
+    if buf.len() > 64 * 1024 {
+        return pending.take();
+    }
+    None
+}
 
 fn default_shell_path() -> String {
     #[cfg(target_os = "windows")]
@@ -152,6 +212,13 @@ fn pty_create(
     if !start_dir.is_empty() {
         cmd.cwd(start_dir);
     }
+    // GUI 应用通常没有可靠的父终端环境。未声明终端能力时，Claude Code、ls、git
+    // 等程序会把 PTY 当成低能力终端并主动退化成黑白输出。
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
+    cmd.env("TERM_PROGRAM", "Brace");
+    cmd.env("CLICOLOR", "1");
+    cmd.env_remove("NO_COLOR");
     // 注入当前选中的配置组（AI 中转端点、代理等）。env() 是在继承来的环境之上覆盖，
     // 所以没配的变量保持系统原值。只对新建的会话生效——已经跑起来的进程改不了环境变量，
     // 这是操作系统的规矩，不是这里偷懒
@@ -182,15 +249,17 @@ fn pty_create(
     let app_handle = app.clone();
     let sid = id.clone();
     let child_for_wait = Arc::clone(&child);
+    let suppress_shell_startup = !inject.is_empty();
     std::thread::spawn(move || {
         let mut buf = [0u8; 4096];
         let mut leftover: Vec<u8> = Vec::new();
+        let mut startup = suppress_shell_startup.then(String::new);
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
                     let data = decode_utf8_stream(&mut leftover, &buf[..n]);
-                    if !data.is_empty() {
+                    if let Some(data) = filter_shell_startup(&mut startup, data) {
                         let _ = app_handle.emit(
                             "pty-output",
                             PtyOutput {
@@ -1919,6 +1988,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            open_settings_window,
             pty_create,
             pty_write,
             pty_resize,
@@ -2215,5 +2285,25 @@ mod tests {
         );
         assert_eq!(reset_to_ms(&serde_json::json!(null)), 0);
         assert_eq!(reset_to_ms(&serde_json::json!("garbage")), 0);
+    }
+
+    #[test]
+    fn hides_shell_integration_echo_before_first_cwd_marker() {
+        let mut pending = Some(String::new());
+        assert_eq!(
+            filter_shell_startup(&mut pending, "autoload -Uz add-zsh".into()),
+            None
+        );
+        assert_eq!(
+            filter_shell_startup(
+                &mut pending,
+                "-hook\r\n\u{1b}]9;9;/Users/me\u{1b}\\% ".into()
+            ),
+            Some("\u{1b}]9;9;/Users/me\u{1b}\\% ".into())
+        );
+        assert_eq!(
+            filter_shell_startup(&mut pending, "echo ok\r\n".into()),
+            Some("echo ok\r\n".into())
+        );
     }
 }

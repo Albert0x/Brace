@@ -5,6 +5,7 @@ export interface Tab {
   initialCwd: string;
   shellPath: string;
   shellType: string;
+  startupCommand?: "claude" | "codex";
 }
 
 interface StoredTab {
@@ -20,12 +21,13 @@ const SESSION_KEY = "brace-session";
 // 一口气拉起几百个 shell 进程
 const MAX_RESTORED_TABS = 20;
 
-function newTab(t?: Partial<StoredTab>): Tab {
+function newTab(t?: Partial<StoredTab> & { startupCommand?: "claude" | "codex" }): Tab {
   return {
     id: crypto.randomUUID(),
     initialCwd: t?.cwd ?? "",
     shellPath: t?.shellPath ?? "",
     shellType: t?.shellType ?? "powershell",
+    startupCommand: t?.startupCommand,
   };
 }
 
@@ -72,7 +74,7 @@ export function useTabs(homeCwd: string) {
   activeIdRef.current = activeId;
 
   const addTab = useCallback(
-    (opts: { cwd: string; shellPath: string; shellType: string }) => {
+    (opts: { cwd: string; shellPath: string; shellType: string; startupCommand?: "claude" | "codex" }) => {
       const tab = newTab(opts);
       setTabs((prev) => [...prev, tab]);
       setActiveId(tab.id);

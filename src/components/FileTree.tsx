@@ -28,7 +28,43 @@ function statusClass(code: string): string {
   }
 }
 
-const parentOf = (path: string) => path.slice(0, path.lastIndexOf("\\"));
+const parentOf = (path: string) =>
+  path.slice(0, Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")));
+
+type IconKind = "folder" | "source" | "config" | "image" | "document" | "archive" | "data" | "terminal" | "file";
+
+function entryIcon(entry: FileEntry, expanded: boolean): { kind: IconKind; label?: string } {
+  if (entry.is_dir) {
+    const name = entry.name.toLowerCase();
+    const label = name === ".git" ? "G" : name.includes("test") ? "T" : name === "src" ? "S" : undefined;
+    return { kind: "folder", label: expanded ? "−" : label };
+  }
+  const ext = entry.name.toLowerCase().split(".").pop() ?? "";
+  if (["ts", "tsx", "js", "jsx", "rs", "py", "go", "java", "c", "cpp", "h", "css", "html", "vue", "svelte"].includes(ext)) return { kind: "source", label: ext.slice(0, 2).toUpperCase() };
+  if (["json", "toml", "yaml", "yml", "xml", "ini", "env", "lock"].includes(ext)) return { kind: "config", label: "◆" };
+  if (["png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "icns"].includes(ext)) return { kind: "image", label: "●" };
+  if (["md", "txt", "pdf", "doc", "docx", "rtf"].includes(ext)) return { kind: "document", label: "≡" };
+  if (["zip", "tar", "gz", "7z", "rar"].includes(ext)) return { kind: "archive", label: "↕" };
+  if (["db", "sqlite", "sql", "csv"].includes(ext)) return { kind: "data", label: "▰" };
+  if (["sh", "zsh", "bash", "fish", "command"].includes(ext) || entry.name === "Makefile") return { kind: "terminal", label: ">_" };
+  return { kind: "file" };
+}
+
+function FileKindIcon({ entry, expanded }: { entry: FileEntry; expanded: boolean }) {
+  const icon = entryIcon(entry, expanded);
+  if (icon.kind === "folder") {
+    return (
+      <span className="tree-icon tree-icon-folder" data-label={icon.label ?? ""}>
+        <svg viewBox="0 0 20 16" aria-hidden="true"><path d="M1.5 3.25A1.75 1.75 0 0 1 3.25 1.5h4l1.55 1.75h7.95A1.75 1.75 0 0 1 18.5 5v7.25A2.25 2.25 0 0 1 16.25 14.5h-13A1.75 1.75 0 0 1 1.5 12.75z" /></svg>
+      </span>
+    );
+  }
+  return (
+    <span className={`tree-icon tree-icon-${icon.kind}`} data-label={icon.label ?? ""}>
+      <svg viewBox="0 0 16 18" aria-hidden="true"><path d="M2.25.75h7l4.5 4.5v10A2 2 0 0 1 11.75 17h-9.5a2 2 0 0 1-2-2V2.75a2 2 0 0 1 2-2Z" /><path className="tree-icon-fold" d="M9.25.75v4.5h4.5" /></svg>
+    </span>
+  );
+}
 
 interface NodeHandlers {
   onOpenDir: (path: string) => void;
@@ -92,7 +128,7 @@ function TreeNode({
         <span className="tree-arrow">
           {entry.is_dir ? (expanded ? "▾" : "▸") : ""}
         </span>
-        <span className="tree-icon">{entry.is_dir ? "📁" : "📄"}</span>
+        <FileKindIcon entry={entry} expanded={expanded} />
         <span className={nameCls}>{entry.name}</span>
         {code && code !== "!" && (
           <span className={"git-badge git-" + statusClass(code)}>{code}</span>
@@ -167,12 +203,12 @@ export default function FileTree({
     if (!gitDeco || !gitStatus) return dirs;
     for (const [file, code] of Object.entries(gitStatus.files)) {
       if (code === "!") continue;
-      let cut = file.lastIndexOf("\\");
+      let cut = Math.max(file.lastIndexOf("/"), file.lastIndexOf("\\"));
       while (cut > 0) {
         const dir = file.slice(0, cut);
         if (dirs.has(dir)) break;
         dirs.add(dir);
-        cut = dir.lastIndexOf("\\");
+        cut = Math.max(dir.lastIndexOf("/"), dir.lastIndexOf("\\"));
       }
     }
     return dirs;

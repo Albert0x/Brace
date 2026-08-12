@@ -23,6 +23,17 @@ function usePersisted<T>(
     // write/read 都是调用方每次渲染新建的箭头函数，进依赖会导致每次渲染都写一次盘
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, value]);
+  useEffect(() => {
+    const syncOtherWindow = (event: StorageEvent) => {
+      if (event.key === key && event.newValue !== null) {
+        setValue(read(event.newValue));
+      }
+    };
+    window.addEventListener("storage", syncOtherWindow);
+    return () => window.removeEventListener("storage", syncOtherWindow);
+    // read is recreated by the small typed wrappers below; key identifies the decoder contract.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
   return [value, setValue];
 }
 

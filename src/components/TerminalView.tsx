@@ -9,6 +9,25 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useT } from "../i18n";
 import "@xterm/xterm/css/xterm.css";
 
+const ANSI_COLORS: ITheme = {
+  black: "#25272b",
+  red: "#ff6b72",
+  green: "#8bd49c",
+  yellow: "#e5c07b",
+  blue: "#7ab7ff",
+  magenta: "#c99cff",
+  cyan: "#69d5d0",
+  white: "#d8dee9",
+  brightBlack: "#697180",
+  brightRed: "#ff858b",
+  brightGreen: "#a6e3b5",
+  brightYellow: "#f0d49a",
+  brightBlue: "#9ac8ff",
+  brightMagenta: "#d9b7ff",
+  brightCyan: "#8be2de",
+  brightWhite: "#f5f7fa",
+};
+
 interface Props {
   sessionId: string;
   active: boolean;
@@ -23,6 +42,10 @@ interface Props {
   onRegisterSearch: (id: string, addon: SearchAddon) => void;
   onUnregisterSearch: (id: string) => void;
   debugInput: boolean;
+  startupCommand?: "claude" | "codex";
+  activeAgent: string;
+  onNewTerminal: () => void;
+  onNewConversation: () => void;
 }
 
 // 终端视图：一个实例对应后端一个 pty 会话
@@ -40,11 +63,17 @@ export default function TerminalView({
   onRegisterSearch,
   onUnregisterSearch,
   debugInput,
+  startupCommand,
+  activeAgent,
+  onNewTerminal,
+  onNewConversation,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [menuAgent, setMenuAgent] = useState("");
+  const [menuHasSelection, setMenuHasSelection] = useState(false);
   const t = useT();
 
   // 输入诊断。开关走 ref 读：让 effect 依赖 debugInput 会重建终端，而重建终端
@@ -54,32 +83,31 @@ export default function TerminalView({
   debugRef.current = debugInput;
   const debugBuf = useRef<string[]>([]);
 
-  const paste = () => {
+  const copySelection = () => {
+    const selection = termRef.current?.getSelection();
+    if (!selection) return;
+    navigator.clipboard.writeText(selection).catch(() => {});
+    termRef.current?.focus();
+  };
+
+  const pasteIntoTerminal = () => {
     navigator.clipboard
       .readText()
       .then((text) => {
-        if (text) {
-          // 用 xterm 的 paste 而非裸 pty_write：自动带 bracketed paste 包裹，
-          // 让 claude/vim 等能区分"粘贴"与"手动键入"（多行不会被逐行执行），
-          // 并把焦点拉回终端，粘完能直接回车。
-          termRef.current?.paste(text);
-          termRef.current?.focus();
-        }
+        if (text) termRef.current?.paste(text);
+        termRef.current?.focus();
       })
-      .catch(() => {});
-  };
-
-  const copySelection = () => {
-    const sel = termRef.current?.getSelection();
-    if (sel) {
-      navigator.clipboard.writeText(sel).catch(() => {});
-      termRef.current?.clearSelection();
-    }
+      .catch(() => termRef.current?.focus());
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
+    setMenuAgent(activeAgent);
+    setMenuHasSelection(termRef.current?.hasSelection() ?? false);
     setMenu({ x: e.clientX, y: e.clientY });
+    invoke<{ agent: string }>("usage_stats", { sessionId })
+      .then((stats) => setMenuAgent(stats.agent))
+      .catch(() => {});
   };
 
   useEffect(() => {
@@ -96,9 +124,13 @@ export default function TerminalView({
     const term = new Terminal({
       cursorBlink,
       allowTransparency: true,
-      fontFamily: "'Cascadia Mono', Consolas, 'Courier New', monospace",
+      fontFamily: "Menlo, Monaco, 'Cascadia Mono', monospace",
       fontSize,
-      theme: termTheme,
+      fontWeight: "500",
+      fontWeightBold: "600",
+      lineHeight: 1.2,
+      letterSpacing: 0,
+      theme: { ...ANSI_COLORS, ...termTheme },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -170,6 +202,10 @@ export default function TerminalView({
         cwd: initialCwd,
         shellPath,
         shellType,
+      }).then(() => {
+        if (startupCommand === "claude" || startupCommand === "codex") {
+          return invoke("pty_write", { id: sessionId, data: `${startupCommand}\r` });
+        }
       }).catch((e) => {
         // 起不来就直接写在终端里。以前只 console.error，用户看到的是一个
         // 一动不动的黑框，完全不知道发生了什么——恢复出来的标签指向一个
@@ -250,7 +286,7 @@ export default function TerminalView({
   }, [sessionId]);
 
   useEffect(() => {
-    if (termRef.current) termRef.current.options.theme = termTheme;
+    if (termRef.current) termRef.current.options.theme = { ...ANSI_COLORS, ...termTheme };
   }, [termTheme]);
 
   // 光标闪烁开关实时生效
@@ -296,21 +332,42 @@ export default function TerminalView({
           style={{ left: menu.x, top: menu.y }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="ctx-item" onClick={() => { copySelection(); setMenu(null); }}>
+          <button className="ctx-item" type="button" disabled>
+            <span className="ctx-leading-icon" aria-hidden="true">✂︎</span>
+            <span>{t("ctx.cut")}</span>
+          </button>
+          <button
+            className="ctx-item"
+            type="button"
+            disabled={!menuHasSelection}
+            onClick={() => { copySelection(); setMenu(null); }}
+          >
+            <span className="ctx-leading-icon" aria-hidden="true">▧</span>
             <span>{t("ctx.copy")}</span>
-            <span className="ctx-key">Ctrl+Shift+C</span>
-          </div>
-          <div className="ctx-item" onClick={() => { paste(); setMenu(null); }}>
+          </button>
+          <button
+            className="ctx-item"
+            type="button"
+            onClick={() => { pasteIntoTerminal(); setMenu(null); }}
+          >
+            <span className="ctx-leading-icon" aria-hidden="true">▣</span>
             <span>{t("ctx.paste")}</span>
-            <span className="ctx-key">Ctrl+Shift+V</span>
-          </div>
+          </button>
           <div className="ctx-sep" />
-          <div className="ctx-item" onClick={() => { termRef.current?.selectAll(); setMenu(null); }}>
-            <span>{t("ctx.selectAll")}</span>
-          </div>
-          <div className="ctx-item" onClick={() => { termRef.current?.clear(); setMenu(null); }}>
-            <span>{t("ctx.clear")}</span>
-          </div>
+          <button className="ctx-item" type="button" onClick={() => { onNewTerminal(); setMenu(null); }}>
+            <span className="ctx-leading-icon" aria-hidden="true">▣</span>
+            <span>{t("ctx.newTerminal")}</span>
+          </button>
+          {(menuAgent === "claude" || menuAgent === "codex") && (
+            <button className="ctx-item" type="button" onClick={() => { onNewConversation(); setMenu(null); }}>
+              <span className="ctx-leading-icon" aria-hidden="true">✦</span>
+              <span>
+                {t("ctx.newConversation", {
+                  agent: menuAgent === "claude" ? "Claude" : "Codex",
+                })}
+              </span>
+            </button>
+          )}
         </div>
       )}
     </div>

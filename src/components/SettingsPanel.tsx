@@ -7,7 +7,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import ProfilePanel from "./ProfilePanel";
 import { DEFAULT_COMMIT_TYPES } from "./GitPanel";
 import { THEMES, type Theme } from "../themes";
-import { useLang, LANGS, type Lang } from "../i18n";
+import { useLang, LANGS } from "../i18n";
 
 const REPO_URL = "https://github.com/Albert0x/Brace";
 
@@ -85,6 +85,14 @@ export default function SettingsPanel(props: Props) {
   const { lang, setLang, t } = useLang();
   const [tab, setTab] = useState<Tab>("general");
   const [checking, setChecking] = useState(false);
+  const [languageOpen, setLanguageOpen] = useState(false);
+  const languageMenuRef = useRef<HTMLDivElement>(null);
+  const currentLanguage = LANGS.find((item) => item.code === lang) ?? LANGS[0];
+  const zoomPercent = Math.round(props.uiZoom * 100);
+  const changeZoom = (step: number) => {
+    const next = Math.min(1.5, Math.max(0.7, props.uiZoom + step));
+    props.onUiZoom(Math.round(next * 20) / 20);
+  };
   const [updateStatus, setUpdateStatus] = useState<{
     type: "info" | "confirm";
     message: string;
@@ -110,6 +118,24 @@ export default function SettingsPanel(props: Props) {
   useEffect(() => {
     if (props.open) refreshLogInfo();
   }, [props.open]);
+  useEffect(() => {
+    if (!props.open) return;
+    const closeOnEscape = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (languageOpen) setLanguageOpen(false);
+      else props.onClose();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [languageOpen, props.open, props.onClose]);
+  useEffect(() => {
+    if (!languageOpen) return;
+    const closeOutside = (e: PointerEvent) => {
+      if (!languageMenuRef.current?.contains(e.target as Node)) setLanguageOpen(false);
+    };
+    window.addEventListener("pointerdown", closeOutside);
+    return () => window.removeEventListener("pointerdown", closeOutside);
+  }, [languageOpen]);
 
   const [slStatus, setSlStatus] = useState<StatuslineStatus | null>(null);
   const [slBusy, setSlBusy] = useState(false);
@@ -148,9 +174,9 @@ export default function SettingsPanel(props: Props) {
   };
 
   const TABS: { id: Tab; key: string; icon: string }[] = [
-    { id: "general", key: "settings.general", icon: "⚙" },
-    { id: "themes", key: "settings.themes", icon: "🎨" },
-    { id: "profiles", key: "settings.profiles", icon: "🔑" },
+    { id: "general", key: "settings.general", icon: "⌘" },
+    { id: "themes", key: "settings.themes", icon: "◐" },
+    { id: "profiles", key: "settings.profiles", icon: "▣" },
     { id: "about", key: "settings.about", icon: "ⓘ" },
   ];
 
@@ -188,23 +214,22 @@ export default function SettingsPanel(props: Props) {
           </div>
         )}
 
-        <div className="settings-tabs">
-          {TABS.map((tb) => (
-            <button
-              key={tb.id}
-              className={"settings-tab" + (tab === tb.id ? " active" : "")}
-              onClick={() => setTab(tb.id)}
-            >
-              <span className="settings-tab-icon">{tb.icon}</span>
-              {t(tb.key)}
-            </button>
-          ))}
-          <button className="settings-close" onClick={props.onClose} title={t("settings.close")}>
-            ×
-          </button>
-        </div>
-
-        <div className="settings-body">
+        <section className="settings-content">
+          <div className="settings-toolbar" data-tauri-drag-region>
+            <nav className="settings-tabs">
+              {TABS.map((tb) => (
+                <button
+                  key={tb.id}
+                  className={"settings-tab" + (tab === tb.id ? " active" : "")}
+                  onClick={() => setTab(tb.id)}
+                >
+                  <span className="settings-tab-icon">{tb.icon}</span>
+                  {t(tb.key)}
+                </button>
+              ))}
+            </nav>
+          </div>
+          <div className="settings-body">
           {/* ---------- General ---------- */}
           {tab === "general" && (
             <>
@@ -214,9 +239,9 @@ export default function SettingsPanel(props: Props) {
               <div className="settings-section-title">{t("general.appearance")}</div>
               <div className="appearance-grid">
                 {[
-                  { id: "system", key: "appearance.system", icon: "🖥" },
-                  { id: "light", key: "appearance.light", icon: "☀" },
-                  { id: "dark", key: "appearance.dark", icon: "🌙" },
+                  { id: "system", key: "appearance.system", icon: "◒" },
+                  { id: "light", key: "appearance.light", icon: "☀︎" },
+                  { id: "dark", key: "appearance.dark", icon: "◐" },
                 ].map((a) => (
                   <div
                     key={a.id}
@@ -234,30 +259,68 @@ export default function SettingsPanel(props: Props) {
 
               <div className="settings-section-title">{t("general.language")}</div>
               <Row title={t("general.language")} desc={t("general.languageDesc")}>
-                <select
-                  className="lang-select"
-                  value={lang}
-                  onChange={(e) => setLang(e.target.value as Lang)}
-                >
-                  {LANGS.map((l) => (
-                    <option key={l.code} value={l.code}>
-                      {l.label}
-                    </option>
-                  ))}
-                </select>
+                <div className="language-picker" ref={languageMenuRef}>
+                  <button
+                    type="button"
+                    className={"language-trigger" + (languageOpen ? " open" : "")}
+                    aria-label={t("general.language")}
+                    aria-haspopup="listbox"
+                    aria-expanded={languageOpen}
+                    onClick={() => setLanguageOpen((open) => !open)}
+                  >
+                    <span>{currentLanguage.label}</span>
+                    <span className="language-chevron" aria-hidden="true">⌄</span>
+                  </button>
+                  {languageOpen && (
+                    <div className="language-menu" role="listbox" aria-label={t("general.language")}>
+                      {LANGS.map((item) => (
+                        <button
+                          key={item.code}
+                          type="button"
+                          className={"language-menu-item" + (lang === item.code ? " selected" : "")}
+                          role="option"
+                          aria-selected={lang === item.code}
+                          onClick={() => {
+                            setLang(item.code);
+                            setLanguageOpen(false);
+                          }}
+                        >
+                          <span className="language-check" aria-hidden="true">
+                            {lang === item.code ? "✓" : ""}
+                          </span>
+                          <span>{item.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </Row>
 
               <div className="settings-section-title">{t("general.zoom")}</div>
-              <Row title={t("general.uiZoom")} desc={`${Math.round(props.uiZoom * 100)}%`}>
-                <input
-                  type="range"
-                  min={0.7}
-                  max={1.5}
-                  step={0.05}
-                  value={props.uiZoom}
-                  onChange={(e) => props.onUiZoom(Number(e.target.value))}
-                  className="set-range"
-                />
+              <Row title={t("general.uiZoom")}>
+                <div className="zoom-stepper" aria-label={t("general.uiZoom")}>
+                  <button
+                    type="button"
+                    className="zoom-step"
+                    aria-label="−5%"
+                    disabled={zoomPercent <= 70}
+                    onClick={() => changeZoom(-0.05)}
+                  >
+                    −
+                  </button>
+                  <output className="zoom-value" aria-live="polite">
+                    {zoomPercent}%
+                  </output>
+                  <button
+                    type="button"
+                    className="zoom-step"
+                    aria-label="+5%"
+                    disabled={zoomPercent >= 150}
+                    onClick={() => changeZoom(0.05)}
+                  >
+                    +
+                  </button>
+                </div>
               </Row>
 
               <div className="settings-section-title">{t("general.explorer")}</div>
@@ -561,7 +624,8 @@ export default function SettingsPanel(props: Props) {
               </div>
             </>
           )}
-        </div>
+          </div>
+        </section>
       </div>
     </div>
   );

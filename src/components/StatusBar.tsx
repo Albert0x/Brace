@@ -1,4 +1,6 @@
+import { useRef } from "react";
 import { useT } from "../i18n";
+import { usePersistedNumber } from "../hooks/usePersisted";
 import type { GitStatus } from "./FileTree";
 import type { useProfiles } from "../hooks/useProfiles";
 import type { useUsage } from "../hooks/useUsage";
@@ -50,30 +52,53 @@ function UsageMeter({
 // 底部状态栏。profiles / usage 直接收 hook 的整个返回值——它们本来就是一整块
 // 内聚状态，拆成十几个 props 只会让调用处更长
 export default function StatusBar({
+  cwd,
   gitStatus,
   onOpenGit,
   profiles,
   usage: usageState,
-  fontSize,
-  tabCount,
-  themeName,
-  osVersion,
 }: {
+  cwd: string;
   gitStatus: GitStatus | null;
   onOpenGit: () => void;
   profiles: ReturnType<typeof useProfiles>;
   usage: ReturnType<typeof useUsage>;
-  fontSize: number;
-  tabCount: number;
-  themeName: string;
-  osVersion: string;
 }) {
   const t = useT();
   const { store, active, switchTo, menuOpen, setMenuOpen } = profiles;
   const { usage, showPrompt, enableUsage, dismissPrompt } = usageState;
+  const [height, setHeight] = usePersistedNumber("brace-status-height", 46);
+  const dragStart = useRef<{ y: number; height: number } | null>(null);
+  const pathParts = cwd.split(/[\\/]/).filter(Boolean);
+  const isHomePath = /^\/Users\/[^/]+(?:\/|$)/.test(cwd);
+  const pathLabels = isHomePath
+    ? ["Home", ...pathParts.slice(2)]
+    : pathParts.length > 0
+      ? pathParts
+      : [cwd || "—"];
+  const visiblePathLabels = pathLabels.length > 6
+    ? ["…", ...pathLabels.slice(-5)]
+    : pathLabels;
+
+  const startResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    dragStart.current = { y: e.clientY, height };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const resize = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragStart.current) return;
+    setHeight(Math.max(46, Math.min(92, dragStart.current.height + dragStart.current.y - e.clientY)));
+  };
 
   return (
-    <footer className="statusbar">
+    <footer className="statusbar" style={{ height: Math.max(46, height) }}>
+      <div
+        className="status-resize-handle"
+        onPointerDown={startResize}
+        onPointerMove={resize}
+        onPointerUp={() => { dragStart.current = null; }}
+        onPointerCancel={() => { dragStart.current = null; }}
+        title="Drag to resize"
+      />
       <div className="status-left">
         <span>◧ Files</span>
         <span
@@ -171,13 +196,16 @@ export default function StatusBar({
           </div>
         )}
       </div>
-
-      <div className="status-right">
-        <span>{fontSize}px</span>
-        <span>{t("status.terminals", { n: tabCount })}</span>
-        <span>{themeName}</span>
-        <span>UTF-8</span>
-        {osVersion && <span>{osVersion}</span>}
+      <div className="status-path" title={cwd} aria-label={cwd}>
+        {visiblePathLabels.map((part, index) => (
+          <span className="status-path-part" key={`${part}-${index}`}>
+            {index > 0 && <span className="status-path-separator" aria-hidden="true">›</span>}
+            <span className={index === 0 && part === "Home" ? "status-path-home" : ""}>
+              {index === 0 && part === "Home" && <span aria-hidden="true">⌂ </span>}
+              {part}
+            </span>
+          </span>
+        ))}
       </div>
     </footer>
   );

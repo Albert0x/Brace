@@ -1,3 +1,5 @@
+import type { ITheme } from "@xterm/xterm";
+
 // 主题定义：UI 配色 + 终端配色。终端背景统一透明，透出 UI 底色（配合毛玻璃/背景图）。
 export interface Theme {
   id: string;
@@ -12,7 +14,7 @@ export interface Theme {
     accent: string; // 强调色（标签圆点等）
     border: string; // 分隔线
   };
-  terminal: {
+  terminal: ITheme & {
     background: string;
     foreground: string;
     cursor: string;
@@ -103,15 +105,35 @@ export const LIGHT_THEME: Theme = {
   name: "Light",
   desc: "亮色",
   ui: {
-    base: "#f4f4f6",
-    bg: "rgba(244, 244, 246, 0.92)",
-    panel: "rgba(0, 0, 0, 0.05)",
-    fg: "#2a2a2e",
-    dim: "#8a8a90",
-    accent: "#0a84ff",
-    border: "rgba(0, 0, 0, 0.12)",
+    base: "#eef1f4",
+    bg: "rgba(238, 241, 244, 0.90)",
+    panel: "rgba(255, 255, 255, 0.26)",
+    fg: "#505761",
+    dim: "#858d98",
+    accent: "#4f82ad",
+    border: "rgba(65, 75, 86, 0.10)",
   },
-  terminal: { background: "rgba(0,0,0,0)", foreground: "#2a2a2e", cursor: "#0a84ff" },
+  terminal: {
+    background: "rgba(0,0,0,0)",
+    foreground: "#6a727c",
+    cursor: "#4f82ad",
+    black: "#4a515b",
+    red: "#b85f67",
+    green: "#54836a",
+    yellow: "#94753d",
+    blue: "#527da8",
+    magenta: "#846b9c",
+    cyan: "#4f8588",
+    white: "#68717c",
+    brightBlack: "#8c949e",
+    brightRed: "#a9545d",
+    brightGreen: "#47765d",
+    brightYellow: "#85682f",
+    brightBlue: "#466f99",
+    brightMagenta: "#755e8d",
+    brightCyan: "#41777a",
+    brightWhite: "#606873",
+  },
 };
 
 // 把主题的 UI 配色写入 CSS 变量
@@ -121,6 +143,7 @@ export function applyTheme(theme: Theme) {
   r.setProperty("--ht-panel", theme.ui.panel);
   // 悬停/激活叠加色：亮色主题用深色叠加，暗色主题用浅色叠加（保证浅底上也可见）
   const light = theme.id === "light";
+  document.documentElement.dataset.themeMode = light ? "light" : "dark";
   r.setProperty("--ht-hover", light ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.08)");
   r.setProperty("--ht-active", light ? "rgba(0,0,0,0.1)" : "rgba(255,255,255,0.12)");
   r.setProperty("--ht-fg", theme.ui.fg);

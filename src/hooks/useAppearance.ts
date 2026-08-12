@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { emit, listen } from "@tauri-apps/api/event";
 import { THEMES, LIGHT_THEME, applyTheme, type Theme } from "../themes";
 import { usePersistedNumber, usePersistedString } from "./usePersisted";
 
@@ -37,10 +38,15 @@ export function useAppearance() {
     applyTheme(effectiveTheme);
   }, [effectiveTheme]);
 
-  // 缩放改了要让 xterm 重新 fit，否则行列数还是按旧尺寸算的
+  // 设置窗口保持系统尺寸，不参与主窗口缩放。否则拖动/修改缩放时设置页本身会
+  // 同步重排，并连续触发 xterm fit，造成明显的画面抖动。
   useEffect(() => {
-    (document.documentElement.style as any).zoom = String(uiZoom);
-    requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+    const isSettingsWindow =
+      new URLSearchParams(window.location.search).get("window") === "settings";
+    document.documentElement.style.zoom = isSettingsWindow ? "" : String(uiZoom);
+    if (!isSettingsWindow) {
+      requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+    }
   }, [uiZoom]);
 
   // 背景图落盘到应用配置目录，不走 localStorage——那边 5MB 配额一超就静默失败，
@@ -61,8 +67,15 @@ export function useAppearance() {
       .then((d) => d && setBgImage(d))
       .catch(() => {});
   }, []);
+  useEffect(() => {
+    const stop = listen<string>("appearance-bg-changed", (event) => {
+      setBgImage(event.payload);
+    });
+    return () => { stop.then((unlisten) => unlisten()); };
+  }, []);
   const pickBg = (dataUrl: string) => {
     setBgImage(dataUrl);
+    emit("appearance-bg-changed", dataUrl).catch(() => {});
     invoke("save_bg_image", { dataUrl }).catch(console.error);
   };
 
