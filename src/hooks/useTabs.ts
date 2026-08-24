@@ -5,13 +5,24 @@ export interface Tab {
   initialCwd: string;
   shellPath: string;
   shellType: string;
+  // 额外的命令行参数。SSH 标签用它带 -p / -i / user@host；本地 shell 是空的
+  args: string[];
 }
 
 interface StoredTab {
   cwd: string;
   shellPath: string;
   shellType: string;
+  args?: string[];
 }
+
+// 这个标签连的是远程主机吗。
+//
+// 判断依据就是 shellType，不额外存字段。远程会话里我们注入的 OSC 9;9 prompt
+// 不会生效（那是远端的 shell，不受我们控制），所以 cwd 会一直停在连接前的本地
+// 目录——文件树、git 装饰、配置组徽标全都必须据此关掉，否则它们显示的是本地
+// 状态却看着像远程的
+export const isRemoteTab = (tab: Tab | undefined) => tab?.shellType === "ssh";
 
 // 关掉再打开时把上次的标签组（shell + 目录）原样开回来。存的是 shell 和目录，
 // 不是 tab id——PTY 会话是新的，id 每次重新生成
@@ -26,6 +37,8 @@ function newTab(t?: Partial<StoredTab>): Tab {
     initialCwd: t?.cwd ?? "",
     shellPath: t?.shellPath ?? "",
     shellType: t?.shellType ?? "powershell",
+    // 手改过或旧版本的存档里没有这个字段
+    args: Array.isArray(t?.args) ? t.args : [],
   };
 }
 
@@ -75,7 +88,12 @@ export function useTabs(homeCwd: string) {
   activeIdRef.current = activeId;
 
   const addTab = useCallback(
-    (opts: { cwd: string; shellPath: string; shellType: string }) => {
+    (opts: {
+      cwd: string;
+      shellPath: string;
+      shellType: string;
+      args?: string[];
+    }) => {
       const tab = newTab(opts);
       setTabs((prev) => [...prev, tab]);
       setActiveId(tab.id);
@@ -147,6 +165,7 @@ export function useTabs(homeCwd: string) {
         cwd: cwdMap[tab.id] ?? tab.initialCwd,
         shellPath: tab.shellPath,
         shellType: tab.shellType,
+        args: tab.args,
       })),
       activeIndex: Math.max(
         0,

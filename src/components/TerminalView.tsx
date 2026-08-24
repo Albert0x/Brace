@@ -21,6 +21,7 @@ interface Props {
   scrollback: number;
   shellPath: string;
   shellType: string;
+  args: string[];
   onRegisterSearch: (id: string, addon: SearchAddon) => void;
   onUnregisterSearch: (id: string) => void;
   debugInput: boolean;
@@ -41,6 +42,7 @@ export default function TerminalView({
   scrollback,
   shellPath,
   shellType,
+  args,
   onRegisterSearch,
   onUnregisterSearch,
   debugInput,
@@ -199,6 +201,7 @@ export default function TerminalView({
         cwd: lastCwdRef.current || initialCwd,
         shellPath,
         shellType,
+        args,
       })
         .then(() => {
           exitedRef.current = false;
@@ -242,6 +245,7 @@ export default function TerminalView({
         cwd: initialCwd,
         shellPath,
         shellType,
+        args,
       }).catch((e) => {
         // 起不来就直接写在终端里。以前只 console.error，用户看到的是一个
         // 一动不动的黑框，完全不知道发生了什么——恢复出来的标签指向一个

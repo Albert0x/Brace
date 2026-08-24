@@ -2019,3 +2019,72 @@ body,
   font-family: var(--mono);
   color: var(--ht-dim);
 }
+
+/* ---------- SSH ---------- */
+
+/* shell 下拉里本地 shell 和 SSH 会话之间的分隔 */
+.shell-sep {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--ht-border);
+}
+
+/* 远程会话下侧栏的占位。宁可什么都不显示，也不能把本地目录树摆在这里
+   假装是远端的内容 */
+.sidebar-remote {
+  padding: 14px 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ht-dim);
+}
+
+/* 失败提示。固定在右下角、点一下就消失——比 alert 轻，但不会被忽略 */
+.app-notice {
+  position: fixed;
+  right: 16px;
+  bottom: 40px;
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  max-width: 420px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--ht-panel);
+  border: 1px solid #e06c75;
+  color: var(--ht-fg);
+  font-size: 12px;
+  line-height: 1.55;
+  cursor: pointer;
+}
+.app-notice-close {
+  color: var(--ht-dim);
+  flex-shrink: 0;
+}
+
+/* SSH 会话表单 */
+.ssh-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 16px;
+}
+.ssh-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--ht-dim);
+}
+.ssh-form input {
+  background: var(--ht-hover);
+  border: 1px solid var(--ht-border);
+  border-radius: 6px;
+  padding: 6px 9px;
+  color: var(--ht-fg);
+  font-family: var(--mono);
+  font-size: 12px;
+  outline: none;
+}
+.ssh-form input:focus {
+  border-color: var(--ht-accent);
+}

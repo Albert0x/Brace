@@ -19,6 +19,10 @@ coverage
 # .claude/settings.json（团队共享的那份）不在忽略范围内，正常跟踪。
 .claude/settings.local.json
 
+# 更新清单是发布产物，由 release workflow 生成并作为 release 附件上传。
+# 手工发版时它也会在仓库根目录留一份——那是临时文件，不该进版本库
+latest.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
