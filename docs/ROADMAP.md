@@ -3,15 +3,14 @@
 Scope, acceptance criteria, and the reasoning behind a few load-bearing calls — so
 that the same discussion does not have to be had again in a few weeks.
 
-At the time of writing, 0.1.8 is in review. Effort figures are working days of actual
-work, not calendar time.
+Effort figures are working days of actual work, not calendar time.
 
 ## Version overview
 
 | Version | Theme | Effort | Skippable? |
 | --- | --- | --- | --- |
-| 0.1.8 | Stabilization: silent failures, usability defects, engineering baseline | 4-6d | No — 0.1.7 actively misleads users |
-| 0.2.0 | SSH remote sessions (scratch-your-own-itch) | 2-3d | Yes, but the author needs it daily |
+| 0.1.8 ✅ | Stabilization: silent failures, usability defects, engineering baseline | 4-6d | No — 0.1.7 actively misleads users |
+| 0.2.0 ✅ | SSH remote sessions (scratch-your-own-itch) | 2-3d | Yes, but the author needs it daily |
 | 0.3.0 | AI command suggestions + command history + third-party API balance | ~1.5w | Yes — this is a selling point, not a blocker |
 | 0.3.x | Custom shells/WSL + per-tab profile binding | ~3d | Ships alongside, no release of its own |
 
@@ -88,11 +87,30 @@ were changed.
 
 ---
 
-## v0.2.0 · SSH remote sessions
+## v0.2.0 · SSH remote sessions — shipped
 
 **Positioning: a tool for the author.** Connecting to servers daily without opening a
 second application is a legitimate reason. It is not expected to become a selling
 point, and it does not get more than a couple of days.
+
+Built as planned: wraps the system OpenSSH client, stores no passwords, and marks
+remote tabs so the local file tree / git decorations / profile badge get switched off
+rather than displaying local state that looks remote.
+
+Two things worth recording, because both are the kind of thing that gets "helpfully"
+undone later:
+
+- **A blank field is left off the command line.** No port → no `-p`, no key → no `-i`,
+  no user → no `user@`. `~/.ssh/config` decides, aliases and `ProxyJump` included.
+  Nine tests pin this. Filling in defaults here is how you get "connects in my
+  terminal, not in Brace".
+- **There is no password field, and a test asserts there never will be.** `ssh` asks
+  in the PTY, so Brace holds no SSH credentials and has no duty to protect them.
+  "Add a password field so I don't have to type it" is the obvious next request; CI
+  refuses it rather than a reviewer having to remember.
+
+Argument assembly lives in Rust with the frontend forwarding the result — one rule,
+one implementation.
 
 ### Prerequisite — done
 
