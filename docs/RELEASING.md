@@ -179,6 +179,12 @@ Pushing the tag runs `.github/workflows/release.yml` on a Windows runner. It
 checks the three version numbers against the tag, builds, signs, uploads the
 installer, its `.sig`, and `latest.json`, then opens the release **as a draft**.
 
+Only plain version tags trigger it — the pattern is `v[0-9]+.[0-9]+.[0-9]+`.
+Pre-release tags such as `v0.1.8-macos-preview.1` are published by hand and
+deliberately excluded: the version check would fail against them by definition,
+and it fails *after* the draft has been created, leaving a stray draft nobody
+wants to be the one to delete.
+
 Two one-time prerequisites:
 
 | Repository secret | Value |
