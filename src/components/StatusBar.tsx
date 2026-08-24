@@ -50,6 +50,7 @@ function UsageMeter({
 // 底部状态栏。profiles / usage 直接收 hook 的整个返回值——它们本来就是一整块
 // 内聚状态，拆成十几个 props 只会让调用处更长
 export default function StatusBar({
+  remote,
   gitStatus,
   onOpenGit,
   profiles,
@@ -59,6 +60,8 @@ export default function StatusBar({
   themeName,
   osVersion,
 }: {
+  // 远程会话：git 状态和配置组说的都是本地的事，摆在那里只会误导
+  remote: boolean;
   gitStatus: GitStatus | null;
   onOpenGit: () => void;
   profiles: ReturnType<typeof useProfiles>;
@@ -76,6 +79,7 @@ export default function StatusBar({
     <footer className="statusbar">
       <div className="status-left">
         <span>◧ Files</span>
+        {!remote && (
         <span
           className={"status-git" + (gitStatus?.isRepo ? " clickable" : "")}
           onClick={() => gitStatus?.isRepo && onOpenGit()}
@@ -86,9 +90,11 @@ export default function StatusBar({
             ? ` ±${gitStatus.changedCount}`
             : ""}
         </span>
+        )}
 
-        {/* 一个配置组都没有时不显示，免得状态栏挂个没用的图标 */}
-        {store.profiles.length > 0 && (
+        {/* 一个配置组都没有时不显示，免得状态栏挂个没用的图标。
+            远程会话也不显示：注入的环境变量给的是本地 ssh 客户端，不是远端 shell */}
+        {!remote && store.profiles.length > 0 && (
           <span className="status-profile-wrap">
             <span
               className="status-profile clickable"

@@ -26,6 +26,8 @@ custom backgrounds in a lightweight native window.
 - Search across terminal output with match highlighting and a hit counter
 - Clickable links, copy and paste, configurable font size and scrollback
 - Resizable file tree pane
+- Saved SSH targets that open as ordinary tabs, driven by the system OpenSSH
+  client so keys, `known_hosts` and `~/.ssh/config` all still apply
 - Session restore for the previous tab group (shell + directory per tab)
 - Built-in themes and optional custom backgrounds
 - Tauri desktop packaging for Windows
@@ -117,7 +119,11 @@ src/
   App.tsx              Application state, tabs, shortcuts, and layout
   themes.ts            Terminal and application themes
 src-tauri/
-  src/lib.rs           PTY sessions, filesystem commands, and shell discovery
+  src/lib.rs           Assembly only — state, command registration, exit cleanup
+  src/pty.rs           PTY sessions, reader/sender threads, exit detection
+  src/ssh.rs           Saved SSH targets and ssh command assembly
+  src/*.rs             One module per domain: git, fs_ops, preview, profiles,
+                       usage, shells, system, diagnostics
   capabilities/        Tauri permission declarations
   tauri.conf.json      Window, security, and packaging configuration
 ```

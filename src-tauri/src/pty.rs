@@ -153,6 +153,9 @@ pub(crate) fn pty_create(
     cwd: String,
     shell_path: String,
     shell_type: String,
+    // 额外的命令行参数。SSH 会话靠它把 -p / -i / user@host 传给 ssh.exe；
+    // 普通 shell 传空数组。以后的自定义 shell（WSL 等）走同一条路
+    args: Vec<String>,
 ) -> Result<(), String> {
     let pty_system = native_pty_system();
     let pair = pty_system
@@ -163,6 +166,13 @@ pub(crate) fn pty_create(
             pixel_height: 0,
         })
         .map_err(|e| e.to_string())?;
+
+    // 说是 SSH 却没给客户端路径，意味着系统里没找到 ssh.exe。这里必须明确失败：
+    // 否则下面会把它当成「用默认 shell」，于是开出一个本地 PowerShell，
+    // 而用户以为自己连上了远程主机——那比连不上糟糕得多
+    if shell_type == "ssh" && shell_path.trim().is_empty() {
+        return Err("找不到 ssh 客户端（需要 Windows 自带的 OpenSSH）".into());
+    }
 
     let use_default_shell = shell_path.trim().is_empty();
     let exe = if use_default_shell {
@@ -176,6 +186,10 @@ pub(crate) fn pty_create(
         shell_type
     };
     let mut cmd = CommandBuilder::new(&exe);
+    // SSH 会话的 -p / -i / user@host 从这里进去；普通 shell 是空的
+    if !args.is_empty() {
+        cmd.args(&args);
+    }
     let start_dir = if !cwd.trim().is_empty() {
         cwd
     } else {

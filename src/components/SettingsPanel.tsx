@@ -5,9 +5,11 @@ import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import ProfilePanel from "./ProfilePanel";
+import SshPanel from "./SshPanel";
 import { DEFAULT_COMMIT_TYPES } from "./GitPanel";
 import { THEMES, type Theme } from "../themes";
 import { useLang, LANGS, type Lang } from "../i18n";
+import type { SshSession } from "../hooks/useSshSessions";
 
 const REPO_URL = "https://github.com/Albert0x/Brace";
 
@@ -47,6 +49,9 @@ interface Props {
   onCursorBlink: (v: boolean) => void;
   scrollback: number;
   onScrollback: (v: number) => void;
+  sshSessions: SshSession[];
+  sshClientPath: string | null;
+  onSshChanged: () => void;
   commitTypes: string;
   onCommitTypes: (v: string) => void;
   debugInput: boolean;
@@ -86,7 +91,7 @@ function Row({
   );
 }
 
-type Tab = "general" | "themes" | "profiles" | "about";
+type Tab = "general" | "themes" | "profiles" | "ssh" | "about";
 
 export default function SettingsPanel(props: Props) {
   const { lang, setLang, t } = useLang();
@@ -158,6 +163,7 @@ export default function SettingsPanel(props: Props) {
     { id: "general", key: "settings.general", icon: "⚙" },
     { id: "themes", key: "settings.themes", icon: "🎨" },
     { id: "profiles", key: "settings.profiles", icon: "🔑" },
+    { id: "ssh", key: "settings.ssh", icon: "🖥" },
     { id: "about", key: "settings.about", icon: "ⓘ" },
   ];
 
@@ -419,6 +425,15 @@ export default function SettingsPanel(props: Props) {
           {/* ---------- Profiles ---------- */}
           {tab === "profiles" && (
             <ProfilePanel onChanged={props.onProfilesChanged} />
+          )}
+
+          {/* ---------- SSH ---------- */}
+          {tab === "ssh" && (
+            <SshPanel
+              sessions={props.sshSessions}
+              clientPath={props.sshClientPath}
+              onChanged={props.onSshChanged}
+            />
           )}
 
           {/* ---------- About ---------- */}

@@ -9,6 +9,7 @@ mod preview;
 mod profiles;
 mod pty;
 mod shells;
+mod ssh;
 mod system;
 mod usage;
 
@@ -48,6 +49,10 @@ pub fn run() {
             fs_ops::rename_entry,
             fs_ops::delete_entry,
             shells::detect_shells,
+            ssh::load_ssh_sessions,
+            ssh::save_ssh_sessions,
+            ssh::ssh_client_path,
+            ssh::ssh_launch,
             usage::usage_stats,
             usage::statusline_status,
             usage::configure_statusline,

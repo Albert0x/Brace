@@ -17,6 +17,7 @@ guide covers everything you'll use day to day.
 - [Git commit panel](#git-commit-panel)
 - [AI usage display (the highlight)](#ai-usage-display-the-highlight)
 - [Profiles: switching APIs and proxies (the highlight)](#profiles-switching-apis-and-proxies-the-highlight)
+- [SSH sessions](#ssh-sessions)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Themes & backgrounds](#themes--backgrounds)
 - [Settings](#settings)
@@ -227,6 +228,45 @@ So if you switch providers in CC Switch and the `claude` running inside Brace
 still talks to the old endpoint, this is why. Pick one place to manage
 credentials, or set Brace's profile to **Off** so it injects nothing and the
 config file wins.
+
+---
+
+## SSH sessions
+
+Save a target once, then open it like any other tab: the `▾` next to `＋` lists
+your SSH sessions below the local shells.
+
+Brace does not implement SSH. It assembles an `ssh` command and runs the client
+that ships with Windows, so your keys, `known_hosts` and `~/.ssh/config` all
+keep working exactly as they do in any other terminal.
+
+Manage them under **Settings → SSH**: host, user, port, identity file, note.
+
+### Blank fields are meaningful
+
+**A field left blank is left off the command line entirely.** No port means no
+`-p`, no identity file means no `-i`, no user means no `user@` prefix — so
+`~/.ssh/config` decides, including `Host` aliases and `ProxyJump`. If a host
+already works in your terminal, put its alias in **Host** and leave the rest
+empty.
+
+### There is no password field
+
+By design, and there will not be one. `ssh` asks for the password in the
+terminal, exactly as it does on a command line, and Brace never sees it. For
+unattended login, use a key — that is what `~/.ssh/config` and the identity file
+field are for.
+
+### What a remote tab turns off
+
+The file tree, Git decorations and the profile badge all disappear while a
+remote tab is active. That is deliberate: the prompt injection that reports the
+working directory (OSC 9;9) cannot run in a shell on the far side, so those
+panels would be showing your **local** state while looking like the remote one.
+Not showing them is the honest option.
+
+Environment profiles do not reach the remote shell either — they are applied to
+the local `ssh` process, not to what runs on the server.
 
 ---
 

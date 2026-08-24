@@ -12,7 +12,8 @@ import {
   parseCommitTypes,
 } from "./components/GitPanel";
 import StatusBar from "./components/StatusBar";
-import { useTabs, type Tab } from "./hooks/useTabs";
+import { useTabs, isRemoteTab, type Tab } from "./hooks/useTabs";
+import { useSshSessions, sshLabel } from "./hooks/useSshSessions";
 import { useUsage } from "./hooks/useUsage";
 import { useGitStatus } from "./hooks/useGitStatus";
 import { useProfiles } from "./hooks/useProfiles";
@@ -163,7 +164,39 @@ function App() {
     window.addEventListener("mouseup", onUp);
   };
 
-  const { gitStatus, refresh: refreshGit } = useGitStatus(activeCwd, gitDeco);
+  const ssh = useSshSessions();
+  // 起不来的时候必须说话。点了菜单没反应，用户只会以为界面坏了
+  const [notice, setNotice] = useState("");
+
+  // 开一个 SSH 标签。命令行由后端拼（那边有测试盯着「留空就不传」的约定），
+  // 这里只负责把结果转交给 pty_create
+  const addSshTab = useCallback(
+    (sessionId: string) => {
+      invoke<{ path: string; args: string[] }>("ssh_launch", { sessionId })
+        .then((launch) =>
+          openTab({
+            // 远程会话的 cwd 由远端决定，本地传什么都没意义
+            cwd: "",
+            shellPath: launch.path,
+            shellType: "ssh",
+            args: launch.args,
+          }),
+        )
+        .catch((e) => setNotice(String(e)));
+    },
+    [openTab],
+  );
+
+  const activeTab = tabs.find((x) => x.id === activeId);
+  // 远程标签里，本地的文件树 / git 状态 / 配置组全都对不上号——
+  // OSC 9;9 在远端 shell 里不生效，cwd 会停在连接前的本地目录。
+  // 照着渲染不是「信息少一点」，是显示错的东西
+  const activeIsRemote = isRemoteTab(activeTab);
+
+  const { gitStatus, refresh: refreshGit } = useGitStatus(
+    activeIsRemote ? "" : activeCwd,
+    gitDeco,
+  );
   // 这两个整块传给 StatusBar，不在这里解构——它们本来就是各自内聚的一块状态
   const usageState = useUsage(activeId);
   const profiles = useProfiles();
@@ -195,6 +228,9 @@ function App() {
   };
 
   const tabLabel = (tab: Tab) => {
+    // 远程标签的 cwd 永远拿不到（OSC 9;9 不在远端生效），所以用连接目标当标题。
+    // args 的最后一项就是 [user@]host
+    if (isRemoteTab(tab)) return tab.args[tab.args.length - 1] || "SSH";
     const cwd = cwdMap[tab.id];
     const b = cwd ? cwd.split(/[\\/]/).filter(Boolean).pop() : "";
     if (b) return b;
@@ -422,6 +458,26 @@ function App() {
                       <span className="shell-item-type">{s.shell_type}</span>
                     </div>
                   ))}
+                  {/* 系统没有 ssh 客户端时整组都不出现——列一堆点了会报错的项没有意义 */}
+                  {ssh.clientPath && ssh.sessions.length > 0 && (
+                    <>
+                      <div className="shell-sep" />
+                      {ssh.sessions.map((sess) => (
+                        <div
+                          className="shell-item"
+                          key={sess.id}
+                          title={sess.note || undefined}
+                          onClick={() => {
+                            addSshTab(sess.id);
+                            setShellMenu(false);
+                          }}
+                        >
+                          <span>{sshLabel(sess)}</span>
+                          <span className="shell-item-type">ssh</span>
+                        </div>
+                      ))}
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -484,6 +540,9 @@ function App() {
 
         <div className="body">
           <aside className="sidebar" style={{ flexBasis: sidebarWidth }}>
+            {activeIsRemote ? (
+              <div className="sidebar-remote">{t("sidebar.remote")}</div>
+            ) : (
             <FileTree
               rootPath={activeCwd}
               onOpenDir={openDirInTerminal}
@@ -493,6 +552,7 @@ function App() {
               gitStatus={gitDeco ? gitStatus : null}
               gitDeco={gitDeco}
             />
+            )}
           </aside>
 
           <div
@@ -516,6 +576,7 @@ function App() {
                 scrollback={scrollback}
                 shellPath={tab.shellPath}
                 shellType={tab.shellType}
+                args={tab.args}
                 onRegisterSearch={registerSearch}
                 debugInput={debugInput}
                 onUnregisterSearch={unregisterSearch}
@@ -537,6 +598,7 @@ function App() {
         </div>
 
         <StatusBar
+          remote={activeIsRemote}
           gitStatus={gitStatus}
           onOpenGit={() => setGitPanelOpen(true)}
           profiles={profiles}
@@ -547,6 +609,15 @@ function App() {
           osVersion={osVersion}
         />
       </div>
+
+      {/* 起不来的原因得说出来。SSH 那条路上最常见的是「系统里没有 ssh 客户端」，
+          静默失败会让用户以为是菜单坏了 */}
+      {notice && (
+        <div className="app-notice" onClick={() => setNotice("")}>
+          <span>{notice}</span>
+          <span className="app-notice-close">×</span>
+        </div>
+      )}
 
       <SettingsPanel
         open={settingsOpen}
@@ -573,6 +644,9 @@ function App() {
         onCursorBlink={setCursorBlink}
         scrollback={scrollback}
         onScrollback={setScrollback}
+        sshSessions={ssh.sessions}
+        sshClientPath={ssh.clientPath}
+        onSshChanged={ssh.refresh}
         commitTypes={commitTypesRaw}
         debugInput={debugInput}
         onDebugInput={setDebugInput}
