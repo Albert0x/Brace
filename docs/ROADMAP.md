@@ -94,11 +94,16 @@ were changed.
 second application is a legitimate reason. It is not expected to become a selling
 point, and it does not get more than a couple of days.
 
-### Prerequisite
+### Prerequisite — done
 
-**D3: split `lib.rs`** (2155 lines → `pty` / `fs` / `git` / `profiles` / `usage` /
-`shells`; a pure move, with the existing Rust tests as the safety net). Both 0.2.0 and
-0.3.0 add backend modules, which promotes this from optional to **mandatory**.
+**D3: split `lib.rs`** ✅ Nine modules (`pty` / `fs_ops` / `git` / `preview` /
+`profiles` / `usage` / `shells` / `system` / `diagnostics`) plus a 78-line assembly
+layer. A pure move: 30 passed / 2 ignored, identical to before.
+
+Splitting surfaced one hidden coupling — `usage_stats` was reaching into
+`PtyManager.sessions` directly, which cost nothing while both lived in the same
+file. It now goes through `PtyManager::pid_of()`. That is most of the point of
+splitting a file this size.
 
 ### Scope
 
