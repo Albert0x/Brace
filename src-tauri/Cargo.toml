@@ -1,6 +1,6 @@
 [package]
 name = "brace"
-version = "0.1.8"
+version = "0.2.0"
 description = "Brace — a terminal with proxy/agent-aware config and git-aware file browsing"
 authors = ["Albert0x"]
 edition = "2021"
