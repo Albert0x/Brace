@@ -33,13 +33,17 @@ fn sniff_bom(b: &[u8]) -> Option<(&'static str, usize)> {
 
 // UTF-16 解码（BOM 已剥离）。奇数个字节说明文件截断，末尾半个码元直接丢掉
 fn decode_utf16(body: &[u8], little: bool) -> String {
+    // as_chunks 而非 chunks_exact：定长切片直接给出 [u8; 2]，省掉手工索引，
+    // 也不用编译器去证明下标不越界。.1 是末尾凑不满一组的残余，正好丢掉
     let units: Vec<u16> = body
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|c| {
             if little {
-                u16::from_le_bytes([c[0], c[1]])
+                u16::from_le_bytes(*c)
             } else {
-                u16::from_be_bytes([c[0], c[1]])
+                u16::from_be_bytes(*c)
             }
         })
         .collect();
