@@ -243,7 +243,7 @@ for command suggestions.
 | Plugin system | Building a plugin system with zero users is self-entertainment |
 | Split panes | Touches layout, focus and size synchronization all at once; payoff does not match |
 | Generic git timeout | After A3 the remaining risk is small and the cost is not |
-| Linux | Out of scope. macOS work is underway from another contributor (see `tauri.macos.conf.json`); this roadmap does not cover it, and README's platform statement needs to be reconciled with it |
+| macOS / Linux | Out of scope. Brace is Windows-only; the macOS UI/DMG work (#23) was closed unmerged when that was decided, and the preview build `v0.1.8-macos-preview.1` is left up as-is but will not be updated |
 
 ---
 

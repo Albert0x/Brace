@@ -68,8 +68,6 @@ corepack prepare pnpm@9.15.9 --activate
 ```bash
 pnpm install --frozen-lockfile
 pnpm desktop:dev
-# macOS（显式加载原生标题栏配置）
-pnpm desktop:dev:macos
 ```
 
 可以使用 `pnpm dev` 只运行前端，但 PTY、文件系统、窗口和链接打开能力必须在
@@ -83,8 +81,6 @@ Tauri 运行时中验证。
 pnpm build
 cargo check --locked --manifest-path src-tauri/Cargo.toml
 pnpm desktop:build
-# macOS
-pnpm desktop:build:macos
 ```
 
 发布平台安装包前必须执行 `pnpm desktop:build`。仅前端构建通过不能证明原生终端

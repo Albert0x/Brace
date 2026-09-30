@@ -77,8 +77,6 @@ rewrite the lockfile and introduce unrelated dependency changes.
 ```bash
 pnpm install --frozen-lockfile
 pnpm desktop:dev
-# macOS (explicitly loads the native title-bar configuration)
-pnpm desktop:dev:macos
 ```
 
 Frontend-only development is available with `pnpm dev`, but PTY, filesystem,
@@ -102,14 +100,12 @@ CI does **not** build a platform package. Do that before publishing one — a
 frontend build alone does not prove that native terminal behavior works:
 
 ```bash
-pnpm desktop:build          # Windows
-pnpm desktop:build:macos    # macOS
+pnpm desktop:build
 ```
 
-Windows releases run it through
+Releases run it through
 [`.github/workflows/release.yml`](.github/workflows/release.yml), triggered by a
-tag. macOS packages are built locally for now — the release workflow does not
-cover them.
+tag.
 
 ## Project Structure
 
