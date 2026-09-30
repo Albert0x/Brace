@@ -213,10 +213,11 @@ prompt 注入（OSC 9;9）在远端的 shell 里跑不起来，所以那几个�
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | 下一个 / 上一个标签 |
 | `Ctrl+F` | 聚焦搜索框 |
 | `Ctrl+Shift+C` | 复制选中内容 |
-| `Ctrl+Shift+V` | 粘贴(带 bracketed paste,claude/vim 能区分粘贴与手打) |
+| `Ctrl+V` / `Ctrl+Shift+V` | 粘贴(带 bracketed paste,claude/vim 能区分粘贴与手打) |
 | `Ctrl+=` / `Ctrl+-` | 放大 / 缩小字体 |
 | `Ctrl+0` | 字体恢复默认(14px) |
 | `Alt+V` | (在 claude 里)粘贴剪贴板图片 |
+| `Alt`+点击 | 把光标移到命令行上点击的位置(中文、emoji 按一个字算,不会点偏) |
 | 右键 | 复制 / 粘贴 / 全选 / 清屏菜单 |
 
 ---

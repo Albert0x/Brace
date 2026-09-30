@@ -279,10 +279,11 @@ the local `ssh` process, not to what runs on the server.
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab |
 | `Ctrl+F` | Focus the search box |
 | `Ctrl+Shift+C` | Copy selection |
-| `Ctrl+Shift+V` | Paste (bracketed paste, so claude/vim tell paste from typing) |
+| `Ctrl+V` / `Ctrl+Shift+V` | Paste (bracketed paste, so claude/vim tell paste from typing) |
 | `Ctrl+=` / `Ctrl+-` | Zoom font in / out |
 | `Ctrl+0` | Reset font to default (14px) |
 | `Alt+V` | (in claude) paste an image from the clipboard |
+| `Alt`+click | Move the cursor to the clicked spot on the command line (counts CJK / emoji as one character) |
 | Right-click | Copy / Paste / Select all / Clear menu |
 
 ---
