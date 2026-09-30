@@ -173,9 +173,15 @@ export default function TerminalView({
           return false;
         }
       }
-      if (e.ctrlKey && e.shiftKey && e.code === "KeyV") {
-        // 不手动粘贴——交给 WebView 原生 paste 事件（xterm textarea 处理，带 bracketed paste）。
-        // 这里仅 return false，阻止 xterm 把 Ctrl+Shift+V 当控制字符发出，避免粘贴两遍。
+      // Ctrl+V 和 Ctrl+Shift+V 都是粘贴。不手动粘贴——交给 WebView 原生 paste 事件
+      // （xterm textarea 处理，带 bracketed paste）。这里只 return false，
+      // 阻止 xterm 把它当控制字符发出去。
+      //
+      // Ctrl+V 以前没拦，xterm 会先发一个 ^V，紧接着原生 paste 再送来包好的内容。
+      // readline 把 ^V 当 quoted-insert，于是 ESC[200~ 的 ESC 被当普通字符插进命令行，
+      // 粘贴进 Git Bash 的命令就变成 $'\E[200~gh' 这种东西，末尾还多一个 ~。
+      // 排除 Alt：Ctrl+Alt 在部分键盘布局上是 AltGr，得留给它打字
+      if (e.ctrlKey && !e.altKey && e.code === "KeyV") {
         return false;
       }
       return true;
@@ -282,7 +288,7 @@ export default function TerminalView({
         `key=${JSON.stringify(e.key)} code=${e.code} keyCode=${e.keyCode} textarea=${taValue()}`,
       );
     };
-    // Ctrl+Shift+V 是交给 WebView 原生 paste 事件处理的（见上面的按键处理器），
+    // Ctrl+V / Ctrl+Shift+V 是交给 WebView 原生 paste 事件处理的（见上面的按键处理器），
     // 走不到上面那个 paste()。图片在这条路径上同样是「按了没反应」，得单独拦。
     // ClipboardEvent 自带 clipboardData，不需要剪贴板读取权限
     const onPasteEvent = (e: ClipboardEvent) => {

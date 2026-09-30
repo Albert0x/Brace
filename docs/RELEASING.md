@@ -131,6 +131,11 @@ corresponds to a bug that shipped at least once.
 - [ ] Copy an image to the clipboard, press `Ctrl+Shift+V` in a terminal — a
       hint about `Alt+V` appears instead of nothing happening. Repeat via the
       right-click menu.
+- [ ] In a **Git Bash** tab, copy a command longer than one line and paste it
+      with plain `Ctrl+V`. It must run exactly as copied — no
+      `$'\E[200~…': command not found`, no stray `~` at the end. (Ctrl+V used
+      to leak a `^V` ahead of the paste, which readline treats as quoted-insert
+      and which splits the bracketed-paste marker.)
 - [ ] Pick a background image larger than 8MB — it is rejected with a visible
       reason, and the previous background is still in place.
 - [ ] With Claude running, the usage row shows a context percentage. If it
