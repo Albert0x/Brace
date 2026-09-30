@@ -7,6 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useT } from "../i18n";
+import { altClickArrows, type Grid } from "./altClickMove";
 import "@xterm/xterm/css/xterm.css";
 
 interface Props {
@@ -131,6 +132,8 @@ export default function TerminalView({
       fontSize,
       scrollback,
       theme: termTheme,
+      // 自带的按格子数方向键，中文一多就点不准；下面自己实现（见 altClickMove.ts）
+      altClickMovesCursor: false,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -309,6 +312,46 @@ export default function TerminalView({
     ta?.addEventListener("keydown", onKeyDown);
     ta?.addEventListener("paste", onPasteEvent);
 
+    // Alt+点击移动光标。判定沿用 xterm 自带实现的口径：按下到松开不超过 500ms、
+    // 几乎没选中东西才算「点」——Alt+拖动是列选择，不能跟它抢
+    let altDownAt = 0;
+    const onMouseDown = (e: MouseEvent) => {
+      altDownAt = e.button === 0 && e.altKey ? Date.now() : 0;
+    };
+    const onMouseUp = (e: MouseEvent) => {
+      if (!altDownAt || !e.altKey || e.button !== 0) return;
+      if (Date.now() - altDownAt > 500 || term.getSelection().length > 1) return;
+      const buf = term.buffer.active;
+      // 只管普通缓冲区里的 shell 命令行：vim/less 这类全屏程序在备用缓冲区，
+      // 自己要鼠标的程序开了鼠标跟踪；翻看历史时点的也不是当前行
+      if (buf.type !== "normal" || buf.viewportY !== buf.baseY) return;
+      if (term.modes.mouseTrackingMode !== "none") return;
+      const screen = term.element?.querySelector(".xterm-screen");
+      if (!screen) return;
+      const rect = screen.getBoundingClientRect();
+      const col = Math.floor(((e.clientX - rect.left) / rect.width) * term.cols);
+      const row = Math.floor(((e.clientY - rect.top) / rect.height) * term.rows);
+      if (col < 0 || col >= term.cols || row < 0 || row >= term.rows) return;
+      const grid: Grid = {
+        cols: term.cols,
+        isWrapped: (y) => buf.getLine(y)?.isWrapped ?? false,
+        cell: (x, y) => {
+          const c = buf.getLine(y)?.getCell(x);
+          return c && { width: c.getWidth(), chars: c.getChars() };
+        },
+      };
+      const seq = altClickArrows(
+        grid,
+        { x: buf.cursorX, y: buf.baseY + buf.cursorY },
+        { x: col, y: buf.viewportY + row },
+        term.modes.applicationCursorKeysMode,
+      );
+      // 走 onData 那条路发出去，进程已退出时同样会被拦下
+      if (seq) term.input(seq, true);
+    };
+    term.element?.addEventListener("mousedown", onMouseDown);
+    term.element?.addEventListener("mouseup", onMouseUp);
+
     // 攒一秒写一次盘：keydown 很密，每条一次 IPC 会把通道占满
     const flushDebug = () => {
       const lines = debugBuf.current.splice(0);
@@ -346,6 +389,8 @@ export default function TerminalView({
       ta?.removeEventListener("compositionend", onComposition);
       ta?.removeEventListener("keydown", onKeyDown);
       ta?.removeEventListener("paste", onPasteEvent);
+      term.element?.removeEventListener("mousedown", onMouseDown);
+      term.element?.removeEventListener("mouseup", onMouseUp);
       window.removeEventListener("resize", syncSize);
       unlistenPromise.then((f) => f());
       unlistenExitPromise.then((f) => f());
