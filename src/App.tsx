@@ -51,9 +51,7 @@ function App() {
   // getCurrentWindow() 会直接抛错崩掉，得先判断环境
   const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
   const appWindow = isTauri ? getCurrentWindow() : null;
-  // macOS 使用系统原生交通灯按钮，不渲染自绘窗口按钮。
-  const isMac = navigator.platform.toUpperCase().includes("MAC");
-  const shortcutMod = isMac ? "⌘" : "Ctrl+";
+  const shortcutMod = "Ctrl+";
 
   // 语言（默认英文）
   const [langRaw, setLang] = usePersistedString("ht-lang", "en");
@@ -247,13 +245,13 @@ function App() {
 
   // 这个标签的 shell 是不是 POSIX 系。
   //
-  // "default" 的含义是「交给后端按系统默认 shell 推断」，前端拿不到推断结果，
-  // 只能按平台猜——而 Windows 上默认是 PowerShell，绝不能归进 POSIX：
+  // "default" 的含义是「交给后端按系统默认 shell 推断」，而 Windows 上默认是
+  // PowerShell，绝不能归进 POSIX：
   // bashQuote 的单引号转义是 '\''，PowerShell 要的是 ''，含单引号的路径会直接出错。
   // cd/cat 在 PowerShell 里恰好是 Set-Location/Get-Content 的别名，所以命令本身
   // 侥幸能跑，只有引号会露馅——正因为这样才更容易漏掉
   const isPosixShell = (st: string) =>
-    st === "bash" || st === "zsh" || st === "sh" || (st === "default" && isMac);
+    st === "bash" || st === "zsh" || st === "sh";
 
   // 往当前标签发一条命令，按它用的 shell 选语法
   const runInActiveShell = (
@@ -346,8 +344,7 @@ function App() {
   // 所以这里不用再把 tabs 塞进依赖数组——那正是之前"关掉的标签被 Ctrl+W 复活"的成因
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const hasPrimaryModifier = isMac ? e.metaKey : e.ctrlKey;
-      if (!hasPrimaryModifier) return;
+      if (!e.ctrlKey) return;
       const stop = () => {
         e.preventDefault();
         e.stopPropagation();
@@ -378,7 +375,7 @@ function App() {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [addTab, removeTab, switchTab, activeId, setFontSize, isMac]);
+  }, [addTab, removeTab, switchTab, activeId, setFontSize]);
 
   return (
     <LangContext.Provider value={{ lang, setLang, t }}>
@@ -392,7 +389,7 @@ function App() {
       />
 
       <div className="app">
-        <header className={"topbar" + (isMac ? " mac" : "")} data-tauri-drag-region>
+        <header className="topbar" data-tauri-drag-region>
           <div className="tabs">
             {tabs.map((tab) => (
               <div
@@ -518,7 +515,7 @@ function App() {
             >
               <span className="settings-icon" aria-hidden="true">⚙︎</span>
             </button>
-            {!isMac && <div className="win-controls">
+            <div className="win-controls">
               <button className="win-btn" title={t("win.minimize")} onClick={() => appWindow?.minimize()}>
                 <svg width="10" height="10" viewBox="0 0 10 10">
                   <rect y="4.5" width="10" height="1" fill="currentColor" />
@@ -534,7 +531,7 @@ function App() {
                   <path d="M1 1 L9 9 M9 1 L1 9" stroke="currentColor" strokeWidth="1.2" />
                 </svg>
               </button>
-            </div>}
+            </div>
           </div>
         </header>
 
