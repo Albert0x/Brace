@@ -58,11 +58,6 @@ body,
   user-select: none;
 }
 
-/* macOS 用系统原生交通灯（红黄绿），左侧留出按钮空间 */
-.topbar.mac {
-  padding-left: 88px;
-}
-
 .tabs {
   display: flex;
   align-items: center;
