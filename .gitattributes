@@ -9,6 +9,11 @@
 # 这里不写 eol=lf——那会强制重写所有人的工作区文件，代价大于收益。
 * text=auto
 
+# bash 脚本必须是 LF。它会被 include_str! 编进程序再交给 bash 执行，
+# 而 Windows runner 默认 core.autocrlf=true，检出成 CRLF 的话每一行都带个 \r，
+# bash 逐行报 $'\r': command not found——本机工作区恰好是 LF 时完全看不出来
+*.bash text eol=lf
+
 # 二进制文件绝不能碰行尾，否则文件直接损坏
 *.png binary
 *.jpg binary
