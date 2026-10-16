@@ -141,14 +141,16 @@ fn write_shell_script(app: &AppHandle, name: &str, content: &str) -> Result<Path
     Ok(path)
 }
 
-// 让 shell 加载集成脚本的那一行。
+// 让 shell 加载集成脚本的那一行。加载完清屏，不让这行注入命令留在屏幕上。
 // bash：msys 认 C:/x/y 这种写法；前导空格让 HISTCONTROL=ignorespace 的人历史里不多这一条。
+//   清屏用内置 printf 发 ESC[H ESC[2J ESC[3J，而不是 clear：msys 的 clear 是外部程序，
+//   要 fork，而且 TERM 为空时只会报错不清屏——Brace 并不设 TERM
 // PowerShell：读文本再 iex，而不是 . 点源——默认执行策略会拦 .ps1 文件。
 fn loader_line(shell_type: &str, path: &Path) -> String {
     let p = path.to_string_lossy();
     match shell_type {
         "bash" => format!(
-            " source '{}'\r",
+            " source '{}'; printf '\\e[H\\e[2J\\e[3J'\r",
             p.replace('\\', "/").replace('\'', "'\\''")
         ),
         _ => format!(
@@ -536,7 +538,7 @@ mod tests {
         let p = Path::new(r"C:\Users\O'Brien\AppData\Roaming\com.brace.dev\shell\brace.bash");
         assert_eq!(
             loader_line("bash", p),
-            " source 'C:/Users/O'\\''Brien/AppData/Roaming/com.brace.dev/shell/brace.bash'\r"
+            " source 'C:/Users/O'\\''Brien/AppData/Roaming/com.brace.dev/shell/brace.bash'; printf '\\e[H\\e[2J\\e[3J'\r"
         );
         let p = Path::new(r"C:\Users\O'Brien\shell\brace.ps1");
         assert_eq!(
