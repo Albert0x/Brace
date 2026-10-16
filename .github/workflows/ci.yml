@@ -15,9 +15,9 @@ jobs:
     # Windows 是目前唯一完整实现的平台，PTY / shell 检测 / DPAPI 都只在这上面有意义
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
 
