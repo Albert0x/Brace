@@ -2088,6 +2088,9 @@ body,
 .hist-panel {
   width: 640px;
   height: 70vh;
+  /* 不用 git-panel 的半透明底：命令列表是密集的等宽文字，
+     底下终端的字一透上来就叠成一片，根本没法读 */
+  background: var(--ht-base);
 }
 .hist-bar {
   display: flex;
