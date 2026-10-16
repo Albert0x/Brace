@@ -11,8 +11,10 @@ Effort figures are working days of actual work, not calendar time.
 | --- | --- | --- | --- |
 | 0.1.8 ✅ | Stabilization: silent failures, usability defects, engineering baseline | 4-6d | No — 0.1.7 actively misleads users |
 | 0.2.0 ✅ | SSH remote sessions (scratch-your-own-itch) | 2-3d | Yes, but the author needs it daily |
-| 0.3.0 | AI command suggestions + command history + third-party API balance | ~1.5w | Yes — this is a selling point, not a blocker |
-| 0.3.x | Custom shells/WSL + per-tab profile binding | ~3d | Ships alongside, no release of its own |
+| 0.2.1 | Fixes: Ctrl+V paste into Git Bash, Git Bash detection, Alt+click with CJK | 0.5d | No — paste is broken every day |
+| 0.3.0 | Shell integration + command history | 2-3d | Yes |
+| 0.4.0 | AI command suggestions + third-party API balance | 5-6d | Yes — this is a selling point, not a blocker |
+| 0.4.x | Custom shells/WSL + per-tab profile binding | ~3d | Ships alongside, no release of its own |
 
 Versions are cut where **a batch of changes reaches a boundary at which it can be
 verified and rolled back independently** — not where enough features have piled up.
@@ -153,11 +155,52 @@ session grouping trees.
 
 ---
 
-## v0.3.0 · AI command suggestions + history + API balance
+## v0.3.0 · Shell integration + command history
 
-All three share one foundation (HTTP client on the Rust side, Profile credential
-access, redaction), so they ship together. Splitting them means building that layer
-twice.
+Split out of the original 0.3.0 — see the decision log for why it now goes first.
+
+### Shell integration
+
+A terminal only sees a byte stream; Brace does not know which command ran.
+**Recording keystrokes does not work**: Tab completion, arrow-key editing and history
+recall all make the typed bytes differ from what actually executed.
+
+The prompt injection that already reports cwd (OSC 9;9) is the mechanism. Extend it so
+that after each command the shell reports **the command line and its exit code**:
+
+- bash: in `PROMPT_COMMAND`, from `history 1` and `$?`
+- PowerShell: in `function prompt`, from `Get-History -Count 1` and `$?` /
+  `$LASTEXITCODE`
+- cmd: no hook to report the command from — **cmd gets no history**, and the UI says so
+  rather than showing an empty list that looks broken
+
+The reporting must not change what the user sees: no extra output, no visible delay at
+the prompt, `$?` preserved for the user's own prompt logic.
+
+### Command history
+
+Cross-tab, searchable, favouritable. Purely local, so no cost and no latency.
+
+- Source is shell integration only — never keystrokes
+- Remote (SSH) tabs record nothing: the injection does not run remotely
+- Stored next to the other app data, size-capped; a command that looks like it carries a
+  secret (the same patterns as the redaction below) is not stored
+- Exit code shown per entry, so "the one that failed" is findable
+
+### Acceptance criteria
+
+- bash and PowerShell: the recorded command equals what executed, including after Tab
+  completion and history recall — verified by hand, listed in `RELEASING.md`
+- The parser for the reported sequence has unit tests, including commands containing
+  quotes, `;`, non-ASCII and newlines
+- No visible change at the prompt
+
+---
+
+## v0.4.0 · AI command suggestions + API balance
+
+Both share one foundation (HTTP client on the Rust side, Profile credential access,
+redaction), so they ship together. Splitting them means building that layer twice.
 
 ### AI command suggestions
 
@@ -166,15 +209,16 @@ twice.
 one-click system-proxy fill. **Credential management, endpoint config, proxying and
 encrypted storage need zero new code — the feature is usable the day it lands.**
 
-- Trigger: `Ctrl+K` opens a prompt, natural language → 1-3 candidates → `Enter`
-  **inserts into the terminal without executing**.
+- Trigger: `Ctrl+Shift+K` opens a prompt, natural language → 1-3 candidates → `Enter`
+  **inserts into the terminal without executing**. Not `Ctrl+K` — see the decision log.
   **No autocomplete-as-you-type** — an LLM answers in seconds, typing happens in
   fractions of one; suggesting continuously is slow, expensive and distracting
 - **Requests go through Rust; the frontend never touches the network.** `connect-src`
   is currently `'self'` plus ipc, so a frontend fetch is blocked by CSP — and opening
   CSP for one feature trades global safety for local convenience. The cost is one new
   HTTP dependency (`reqwest` or `tauri-plugin-http`)
-- Context: shell type + cwd + git branch by default; optionally "include the last N
+- Context: shell type + cwd + git branch + **the last command and its exit code** (from
+  0.3.0's shell integration) by default; optionally "include the last N
   lines of output", **redacted on the Rust side before sending** (`sk-` / `ghp_` /
   `gho_` / `Bearer ` / `AKIA` / `ANTHROPIC_*` and `OPENAI_*` assignments /
   `password=`, `token=` pairs), with the checkbox stating plainly that output will be
@@ -187,10 +231,7 @@ encrypted storage need zero new code — the feature is usable the day it lands.
 > just got this error, give me the fix"). Safety comes from redaction, off-by-default,
 > and saying so — not from dropping the feature.
 
-### Command history
-
-Cross-tab, searchable, favouritable. Purely local, so no cost and no latency. A natural
-companion to suggestions: an accepted suggestion goes straight into history.
+An accepted suggestion goes straight into history.
 
 ### Third-party API balance
 
@@ -223,7 +264,7 @@ for command suggestions.
 
 ---
 
-## v0.3.x · Ships alongside, no release of its own
+## v0.4.x · Ships alongside, no release of its own
 
 - **Custom shells / WSL**: only the four auto-detected shells work today, so WSL users
   cannot get in. Once 0.2.0 has paved the "one more shell type" path, this costs less
@@ -349,6 +390,21 @@ them together means not knowing which one broke things. "Don't version for the s
 versioning" is the right principle, but **holding finished work back to fill out a
 release is what actually lets version numbers dictate value delivery**. The real problem
 to solve is release cost (→ R1 automation), not release count.
+
+**Why command history moved ahead of AI suggestions (decided after 0.2.0).**
+The original plan bundled history, suggestions and balance into one 1.5-week release on
+the grounds of a shared foundation — but history shares none of it: no network, no HTTP
+dependency, no credentials. What it does need, shell integration, is exactly what makes
+suggestions useful: "the last command failed with exit code 1" is reliable context for
+"fix this", where scraping the output for an error is guesswork. And bundling would put
+two high-risk changes — the prompt injection on every shell, and network plus
+credentials — into one verification, the same reason 0.1.8 carried no features.
+
+**Why the suggestion prompt is `Ctrl+Shift+K`, not `Ctrl+K`.**
+`Ctrl+K` is kill-to-end-of-line in both readline and PSReadLine, and people use it.
+Taking it would repeat the Ctrl+V lesson from 0.2.1 in reverse — there, the terminal
+leaked a key to the shell; here, it would steal one. Terminal-level shortcuts carry
+Shift, like `Ctrl+Shift+C` / `Ctrl+Shift+V`.
 
 **Why wrap `ssh.exe` instead of using a native Rust SSH library.**
 Windows 10+ ships an OpenSSH client; spawning it into the existing PTY reuses keys,
