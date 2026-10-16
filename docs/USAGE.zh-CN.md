@@ -13,6 +13,7 @@ Brace 是一款基于 Tauri + Rust 的轻量 Windows 终端,最大特色是**在
 - [标签与 Shell](#标签与-shell)
 - [文件树联动](#文件树联动)
 - [Git 提交面板](#git-提交面板)
+- [命令历史](#命令历史)
 - [AI 用量显示（特色）](#ai-用量显示特色)
 - [配置组：切换 API 与代理（特色）](#配置组切换-api-与代理特色)
 - [SSH 会话](#ssh-会话)
@@ -97,6 +98,30 @@ Brace 采用三栏 + 状态栏布局:
 文件树上的颜色和角标是同一套 git 状态:黄色 `M` 改动、绿色 `A`/`?` 新增或未跟踪、
 红色 `D` 删除、蓝色 `R` 重命名;文件夹里有改动时右边点一个小黄点。被 git 忽略的文件
 会变灰。这套装饰可以在 设置 → 常规 → **Git 装饰** 里关掉。
+
+## 命令历史
+
+`Ctrl+Shift+H`（或顶栏的 ⟲ 按钮）打开所有标签里执行过的命令，新的在前。
+
+- 输入就能筛选，多个词顺序不限（`main push` 能找到 `git push origin main`）
+- `↑` / `↓` 选择，`Enter` **把命令放到提示符上，不执行**——改好了再自己按回车
+- ☆ 收藏。收藏不受 2000 条上限影响，「清空历史」也不会清掉它
+- 红色数字是命令的退出码，只在失败时显示
+
+**哪些会记，哪些不会**
+
+- **Git Bash** 和 **PowerShell** 标签里执行的命令。命令是在执行完之后从 shell 自己的历史里取的，
+  所以 Tab 补全、方向键编辑过的都能如实记下——Brace 不记录按键
+- **命令提示符（cmd）** 标签和 **SSH** 会话不记：cmd 没有能上报命令的钩子，SSH 的 shell 在远端
+- **看起来带着密钥的命令一律不存**：`sk-…` 开头的 key、GitHub token、`Authorization:` /
+  `Bearer` 请求头、`*_KEY=` / `*_TOKEN=` / `*_PASSWORD=` 这类赋值、`--password` /
+  `--token` 参数、URL 里的 `用户名:密码@`
+- bash 里如果 `HISTCONTROL` 含 `ignorespace`，以空格开头的命令也不会记——这是让某一条命令
+  不留痕的常用办法
+- 历史只存在本地 `%APPDATA%\com.brace.dev\history.json`，不会发到任何地方
+
+多行命令在 shell 支持 bracketed paste 时会作为一整段插入；不支持时 Brace 改为复制到剪贴板，
+而不是插进去——否则第一行会被直接执行。
 
 ## AI 用量显示（特色）
 
@@ -212,6 +237,7 @@ prompt 注入（OSC 9;9）在远端的 shell 里跑不起来，所以那几个�
 | `Ctrl+W` | 关闭当前标签 |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | 下一个 / 上一个标签 |
 | `Ctrl+F` | 聚焦搜索框 |
+| `Ctrl+Shift+H` | 命令历史 |
 | `Ctrl+Shift+C` | 复制选中内容 |
 | `Ctrl+V` / `Ctrl+Shift+V` | 粘贴(带 bracketed paste,claude/vim 能区分粘贴与手打) |
 | `Ctrl+=` / `Ctrl+-` | 放大 / 缩小字体 |

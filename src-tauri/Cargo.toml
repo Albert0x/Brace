@@ -43,6 +43,8 @@ chardetng = "1"
 notify-debouncer-full = "0.7"
 # 文件树的删除走回收站，不做永久删除——树上手一抖点到删除的概率不低
 trash = "5"
+# 命令历史识别疑似密钥的命令不入库；0.4.0 发送终端输出前脱敏也用它（见 redact.rs）
+regex = "1"
 
 [target.'cfg(windows)'.dependencies]
 # 读注册表判断 Windows 版本（Win10 的 acrylic 有黑边，需区分 Win10/11）

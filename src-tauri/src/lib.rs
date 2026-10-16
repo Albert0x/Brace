@@ -5,9 +5,11 @@
 mod diagnostics;
 mod fs_ops;
 mod git;
+mod history;
 mod preview;
 mod profiles;
 mod pty;
+mod redact;
 mod shells;
 mod ssh;
 mod system;
@@ -23,6 +25,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(pty::PtyManager::default())
         .manage(fs_ops::FsWatcher::default())
+        .manage(history::HistoryState::default())
         .setup(|_app| {
             #[cfg(target_os = "windows")]
             {
@@ -69,7 +72,12 @@ pub fn run() {
             profiles::save_profiles,
             diagnostics::debug_log_info,
             diagnostics::append_debug_log,
-            diagnostics::clear_debug_log
+            diagnostics::clear_debug_log,
+            history::history_report,
+            history::history_list,
+            history::history_set_favorite,
+            history::history_delete,
+            history::history_clear
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

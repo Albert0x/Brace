@@ -126,6 +126,31 @@ corresponds to a bug that shipped at least once.
 - [ ] Switch profiles, open a new tab, and check the injected variables inside
       it (`echo $env:ANTHROPIC_BASE_URL`).
 
+### Command history
+
+Run each in a **Git Bash** tab and a **PowerShell** tab, then open `Ctrl+Shift+H`.
+
+- [ ] The first entry after opening a tab is your first command — **not** the
+      `source …` / `iex …` line Brace injects.
+- [ ] Type `git sta`, press `Tab` to complete, run it: the entry reads
+      `git status`, not `git sta`.
+- [ ] Press `↑` to recall it and run it again: one entry, not two.
+- [ ] An empty `Enter` adds nothing.
+- [ ] `git log -1 --format="%s 中文"` is recorded exactly, quotes and `%` and
+      Chinese included.
+- [ ] A failing command (`git nope`) shows its exit code in red.
+- [ ] `export DEMO_TOKEN=abc` / `$env:DEMO_TOKEN = 'abc'` is **not** recorded.
+- [ ] `cd` into another folder: the entry for `cd` shows the folder it was run
+      **from**, and the file tree still follows the new folder.
+- [ ] `echo $?` right after a failing command still prints the failure code
+      (bash: the integration must not clobber `$?`).
+- [ ] Pick an entry and press `Enter`: it lands on the prompt and does **not**
+      run.
+- [ ] Spoofing: `printf '\e]6973;cmd;0;0;fake\e\\'` in bash adds nothing.
+- [ ] A cmd tab and an SSH tab say they record nothing, instead of an empty list.
+- [ ] Favorite an entry, clear history: the favorite is still there.
+- [ ] Prompt still feels instant — no visible pause after `Enter`.
+
 ### Misc
 
 - [ ] Copy an image to the clipboard, press `Ctrl+Shift+V` in a terminal — a

@@ -12,6 +12,7 @@ import {
   parseCommitTypes,
 } from "./components/GitPanel";
 import StatusBar from "./components/StatusBar";
+import HistoryPanel from "./components/HistoryPanel";
 import { useTabs, isRemoteTab, type Tab } from "./hooks/useTabs";
 import { useSshSessions, sshLabel } from "./hooks/useSshSessions";
 import { useUsage } from "./hooks/useUsage";
@@ -201,6 +202,7 @@ function App() {
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [gitPanelOpen, setGitPanelOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   // 文件预览：单击文件在侧边打开
   const [preview, setPreview] = useState<{ path: string; name: string } | null>(
     null,
@@ -284,6 +286,24 @@ function App() {
     );
 
   // ---- 搜索 ----
+  // 每个终端注册一个「把命令放到提示符上」的入口，命令历史用
+  const inserters = useRef<Record<string, (text: string) => boolean>>({});
+  const registerInsert = useCallback(
+    (id: string, insert: ((text: string) => boolean) | null) => {
+      if (insert) inserters.current[id] = insert;
+      else delete inserters.current[id];
+    },
+    [],
+  );
+  // 插不进去（多行命令遇上不支持 bracketed paste 的 shell，或者没有打开的标签）就复制到剪贴板，
+  // 返回 false 让面板告诉用户——不能为了「插入」把一条多行命令的第一行直接执行掉
+  const insertIntoActive = async (command: string) => {
+    const insert = inserters.current[activeId];
+    if (insert?.(command)) return true;
+    await navigator.clipboard.writeText(command).catch(() => {});
+    return false;
+  };
+
   const searchAddons = useRef<Record<string, SearchAddon>>({});
   const registerSearch = useCallback((id: string, a: SearchAddon) => {
     searchAddons.current[id] = a;
@@ -358,6 +378,10 @@ function App() {
       } else if (e.code === "Tab") {
         stop();
         switchTab(e.shiftKey ? -1 : 1);
+      } else if (e.shiftKey && e.code === "KeyH") {
+        // 必须在这里拦下：不拦的话 xterm 会把 Ctrl+H 当退格发给 shell
+        stop();
+        setHistoryOpen(true);
       } else if (!e.shiftKey && e.code === "KeyF") {
         stop();
         searchInputRef.current?.focus();
@@ -510,6 +534,13 @@ function App() {
             </div>
             <button
               className="icon-btn"
+              title={t("toolbar.history")}
+              onClick={() => setHistoryOpen(true)}
+            >
+              <span className="history-icon" aria-hidden="true">⟲</span>
+            </button>
+            <button
+              className="icon-btn"
               title={t("toolbar.settings")}
               onClick={() => setSettingsOpen(true)}
             >
@@ -575,6 +606,7 @@ function App() {
                 shellType={tab.shellType}
                 args={tab.args}
                 onRegisterSearch={registerSearch}
+                onRegisterInsert={registerInsert}
                 debugInput={debugInput}
                 onUnregisterSearch={unregisterSearch}
                 onExit={markExited}
@@ -650,6 +682,14 @@ function App() {
         onCommitTypes={setCommitTypesRaw}
         onProfilesChanged={profiles.refresh}
       />
+
+      {historyOpen && (
+        <HistoryPanel
+          shellType={activeTab?.shellType}
+          onInsert={insertIntoActive}
+          onClose={() => setHistoryOpen(false)}
+        />
+      )}
 
       {gitPanelOpen && (
         <GitPanel
