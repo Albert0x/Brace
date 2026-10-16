@@ -233,25 +233,66 @@ encrypted storage need zero new code — the feature is usable the day it lands.
 
 An accepted suggestion goes straight into history.
 
-### Third-party API balance
+### Official usage vs third-party balance
 
 The shape already exists: the `🔑 profile-name` status bar item and its switcher menu
-are a compact version of the CC Switch list. **All that is missing is one balance
-line.**
+are a compact version of the CC Switch list. What it shows next to it depends on what
+kind of profile is active — **official shows official usage, third-party shows a
+balance**. The two are never mixed: usage is quota, a balance is money.
 
-- Adapters: **DeepSeek official + OneAPI/NewAPI family** (the latter covers most
-  relay providers), everything else via "custom URL + JSON path"
-- **Verify the real response shape with curl before implementing** — do not write field
-  names from memory
-- Requests go through Rust; `profile_balance(profileId)` calls `unseal` internally and
-  **never returns the token to the frontend** (consistent with the existing design)
-- Cache + manual refresh (copy CC Switch's "4 minutes ago + refresh button"),
-  **no polling** — a balance does not change every 20 seconds
-- **Unknown or unsupported → omit the line entirely**, never `0` or `—`. A pile of
-  lying UI was just removed in 0.1.8; do not add more
-- UI semantics: the existing usage row is Claude's **token usage** (5h/7d windows), a
-  balance is **money**. They must be laid out separately so nobody reads "usage" as
-  "spend"
+Researched against CC Switch's source (`farion1231/cc-switch` @ 09bce30) rather than
+designed from memory; the endpoints below are what it actually calls.
+
+**Deciding which kind a profile is.** Official = the profile sets no
+`ANTHROPIC_BASE_URL`, or sets it to `api.anthropic.com`. Anything else is third-party, and
+the provider is picked by matching the base URL's host. CC Switch does the same
+(empty base URL → official; balance provider by URL match).
+
+**Official → the existing usage row, unchanged.** It already reads Claude Code's
+statusline cache. CC Switch instead calls `GET api.anthropic.com/api/oauth/usage` with
+the OAuth token from `~/.claude/.credentials.json` — an undocumented endpoint behind an
+`anthropic-beta` header, and reading the user's Claude login token. Not worth either
+risk while the cache works.
+
+**Third-party → a balance line.** Built-in adapters, in order:
+
+| Provider | Request (GET, `Authorization: Bearer <key>`) | Fields |
+| --- | --- | --- |
+| DeepSeek | `https://api.deepseek.com/user/balance` | `is_available`, `balance_infos[].currency`, `.total_balance` |
+| OpenRouter | `https://openrouter.ai/api/v1/credits` | `data.total_credits - data.total_usage` |
+| SiliconFlow | `https://api.siliconflow.cn/v1/user/info` (`.com` for USD) | `data.totalBalance` |
+
+- **DeepSeek first** — the third-party provider most likely to be used. Its Claude Code
+  base URL is believed to be `api.deepseek.com/anthropic` (unverified — confirm in the
+  curl step), while the balance lives at the host root: match on host, not on the full
+  URL
+- **Still verify each with curl against a real key before implementing.** CC Switch's
+  code is a strong lead, not proof; the user runs the curl, Brace's code never sees the
+  key during research
+- **OneAPI / NewAPI relays are not built in, and that is deliberate.** Their balance
+  endpoint (`/api/user/self`) wants a *system access token* and a numeric
+  `New-Api-User` id, not the API key the profile already holds — two more fields per
+  profile, and quota in units of 1/500000 USD. Deferred until someone actually uses one
+- **Custom: URL + JSON path, not scripts.** CC Switch runs user-written JS in an
+  embedded QuickJS. That buys flexibility at the cost of a JS engine and a sandbox to
+  maintain; a GET with a JSON path covers the common shape. Same rule CC Switch applies
+  to its templates: HTTPS only, same host as the base URL — so a profile cannot be
+  turned into a way to send its key somewhere else
+
+**Behaviour**
+
+- Requests go through Rust; `profile_balance(profileId)` resolves base URL and key
+  itself via `unseal` and **never returns the key to the frontend**. CC Switch keeps
+  third-party keys in frontend state; Brace's DPAPI design already does better, keep it
+- Manual refresh by clicking the line, cached about 5 minutes, "updated N min ago" in
+  the tooltip. **No polling**
+- Keep the last good value for a while after a transient network failure rather than
+  flickering the line away (CC Switch: 10 minutes)
+- Three outcomes, kept distinct:
+  - unsupported provider → **omit the line**, never `0` or `—`
+  - definite failure (401, non-2xx, unparseable) → show it failed and why — hiding a
+    revoked key is its own kind of lie
+  - transient network error → keep last good value, retry once
 
 **Providers with no balance endpoint:** neither Anthropic nor OpenAI offers one. That
 is a ceiling, not an implementation gap.
