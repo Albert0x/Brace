@@ -158,6 +158,10 @@ fn loader_line(shell_type: &str, path: &Path) -> String {
     }
 }
 
+fn normalize_newlines(s: &str) -> String {
+    s.replace("\r\n", "\n")
+}
+
 // 这个会话要注入什么。集成脚本写不出来（磁盘满、配置目录不可写）就退回只报 cwd 的内联版本——
 // 少了命令历史，但文件树跟随不能因为这个一起坏掉
 fn injection_for(app: &AppHandle, shell_type: &str) -> (String, bool) {
@@ -167,7 +171,10 @@ fn injection_for(app: &AppHandle, shell_type: &str) -> (String, bool) {
         _ => None,
     };
     if let Some((name, content)) = script {
-        if let Ok(path) = write_shell_script(app, name, content) {
+        // .gitattributes 已经要求 .bash 用 LF，这里再兜一层：
+        // 带 \r 的 bash 脚本会逐行报错，而这种错只在别人的机器上（CRLF 检出）才出现
+        let content = normalize_newlines(content);
+        if let Ok(path) = write_shell_script(app, name, &content) {
             return (loader_line(shell_type, &path), true);
         }
     }
@@ -536,6 +543,13 @@ mod tests {
             loader_line("powershell", p),
             "iex ([IO.File]::ReadAllText('C:\\Users\\O''Brien\\shell\\brace.ps1')); clear\r"
         );
+    }
+
+    // 编进程序的脚本最终交给 bash 执行，不能带 \r（见 .gitattributes）
+    #[test]
+    fn shell_scripts_have_no_cr_after_normalizing() {
+        assert!(!normalize_newlines(BASH_SCRIPT).contains('\r'));
+        assert_eq!(normalize_newlines("a\r\nb\n"), "a\nb\n");
     }
 
     // ----- 流式 UTF-8 解码 -----
