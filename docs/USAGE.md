@@ -15,6 +15,7 @@ guide covers everything you'll use day to day.
 - [Tabs & shells](#tabs--shells)
 - [File tree sync](#file-tree-sync)
 - [Git commit panel](#git-commit-panel)
+- [Command history](#command-history)
 - [AI usage display (the highlight)](#ai-usage-display-the-highlight)
 - [Profiles: switching APIs and proxies (the highlight)](#profiles-switching-apis-and-proxies-the-highlight)
 - [SSH sessions](#ssh-sessions)
@@ -135,6 +136,37 @@ The file tree uses the same status colors: yellow `M` modified, green `A`/`?`
 added or untracked, red `D` deleted, blue `R` renamed, plus a small yellow dot on
 folders containing changes. Ignored files are dimmed. Turn the whole thing off in
 Settings → General → **Git decorations**.
+
+## Command history
+
+`Ctrl+Shift+H` (or the ⟲ button in the top bar) opens every command you have run, across
+all tabs, newest first.
+
+- Type to filter — several words match in any order (`main push` finds
+  `git push origin main`)
+- `↑` / `↓` to pick, `Enter` **puts the command on the prompt without running it** —
+  edit it, then press `Enter` yourself
+- ☆ to favorite. Favorites survive the 2,000-entry cap and "Clear history"
+- A red number is the command's exit code, shown only when it failed
+
+**What gets recorded, and what doesn't**
+
+- Commands run in **Git Bash** and **PowerShell** tabs. They come from the shell's own
+  history after the command has run, so Tab completion and arrow-key editing are
+  reflected correctly — Brace never logs keystrokes
+- **Command Prompt (cmd)** tabs and **SSH** sessions record nothing: cmd has no hook to
+  report the command, and on SSH the shell is on the remote host
+- **Commands that look like they carry a secret are never stored** — `sk-…` keys,
+  GitHub tokens, `Authorization:` / `Bearer` headers, `*_KEY=` / `*_TOKEN=` /
+  `*_PASSWORD=` assignments, `--password` / `--token` flags, `user:pass@` in URLs
+- In bash, if `HISTCONTROL` includes `ignorespace`, a command starting with a space is
+  left out too — the usual way to keep one command private
+- History is stored locally in `%APPDATA%\com.brace.dev\history.json` and never sent
+  anywhere
+
+A multi-line command is inserted as one block when the shell supports bracketed paste.
+When it doesn't, Brace copies it to the clipboard instead of inserting it — otherwise
+the first line would run immediately.
 
 ## AI usage display (the highlight)
 
@@ -278,6 +310,7 @@ the local `ssh` process, not to what runs on the server.
 | `Ctrl+W` | Close current tab |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab |
 | `Ctrl+F` | Focus the search box |
+| `Ctrl+Shift+H` | Command history |
 | `Ctrl+Shift+C` | Copy selection |
 | `Ctrl+V` / `Ctrl+Shift+V` | Paste (bracketed paste, so claude/vim tell paste from typing) |
 | `Ctrl+=` / `Ctrl+-` | Zoom font in / out |

@@ -314,6 +314,7 @@ dependencies = [
  "encoding_rs",
  "notify-debouncer-full",
  "portable-pty",
+ "regex",
  "serde",
  "serde_json",
  "sysinfo",

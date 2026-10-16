@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
@@ -15,6 +15,9 @@ struct PtySession {
     master: Box<dyn MasterPty + Send>,
     pid: Option<u32>,
     child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
+    // 命令历史用：shell 集成上报时要带上它（见 history.rs）。空 = 这个会话没有集成
+    history_nonce: String,
+    shell_type: String,
 }
 
 // 流式 UTF-8 解码：把跨 read() 块被截断的多字节序列留到下一块，避免中文/emoji 花屏。
@@ -64,6 +67,13 @@ impl PtyManager {
     pub(crate) fn pid_of(&self, id: &str) -> Option<u32> {
         self.sessions.lock().ok()?.get(id)?.pid
     }
+
+    // 校验历史上报用的 nonce 和 shell 类型。没有集成的会话返回 None
+    pub(crate) fn history_nonce_of(&self, id: &str) -> Option<(String, String)> {
+        let sessions = self.sessions.lock().ok()?;
+        let s = sessions.get(id)?;
+        (!s.history_nonce.is_empty()).then(|| (s.history_nonce.clone(), s.shell_type.clone()))
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -109,6 +119,67 @@ const BASH_INJECT: &str =
 // zsh：每次提示符前上报当前目录，供文件树联动。
 const ZSH_INJECT: &str =
     "autoload -Uz add-zsh-hook; _brace_pwd_osc() { printf '\\033]9;9;%s\\033\\\\' \"$PWD\"; }; add-zsh-hook precmd _brace_pwd_osc; clear\r";
+
+// bash / PowerShell 的完整集成（cwd 上报 + 命令历史）放在独立脚本里，
+// 编译期打进程序，开标签时写到配置目录再让 shell 加载。
+// 不再像上面那样把整段逻辑塞进一行转义字符串：加上历史上报之后那一行会长到没法维护
+const BASH_SCRIPT: &str = include_str!("../shell/brace.bash");
+const POWERSHELL_SCRIPT: &str = include_str!("../shell/brace.ps1");
+
+// 把脚本写到配置目录（内容没变就不写），返回路径
+fn write_shell_script(app: &AppHandle, name: &str, content: &str) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| e.to_string())?
+        .join("shell");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(name);
+    if std::fs::read_to_string(&path).ok().as_deref() != Some(content) {
+        std::fs::write(&path, content).map_err(|e| e.to_string())?;
+    }
+    Ok(path)
+}
+
+// 让 shell 加载集成脚本的那一行。
+// bash：msys 认 C:/x/y 这种写法；前导空格让 HISTCONTROL=ignorespace 的人历史里不多这一条。
+// PowerShell：读文本再 iex，而不是 . 点源——默认执行策略会拦 .ps1 文件。
+fn loader_line(shell_type: &str, path: &Path) -> String {
+    let p = path.to_string_lossy();
+    match shell_type {
+        "bash" => format!(
+            " source '{}'\r",
+            p.replace('\\', "/").replace('\'', "'\\''")
+        ),
+        _ => format!(
+            "iex ([IO.File]::ReadAllText('{}')); clear\r",
+            p.replace('\'', "''")
+        ),
+    }
+}
+
+// 这个会话要注入什么。集成脚本写不出来（磁盘满、配置目录不可写）就退回只报 cwd 的内联版本——
+// 少了命令历史，但文件树跟随不能因为这个一起坏掉
+fn injection_for(app: &AppHandle, shell_type: &str) -> (String, bool) {
+    let script = match shell_type {
+        "bash" => Some(("brace.bash", BASH_SCRIPT)),
+        "powershell" => Some(("brace.ps1", POWERSHELL_SCRIPT)),
+        _ => None,
+    };
+    if let Some((name, content)) = script {
+        if let Ok(path) = write_shell_script(app, name, content) {
+            return (loader_line(shell_type, &path), true);
+        }
+    }
+    let inline = match shell_type {
+        "powershell" => POWERSHELL_INJECT,
+        "cmd" => CMD_INJECT,
+        "bash" => BASH_INJECT,
+        "zsh" => ZSH_INJECT,
+        _ => "",
+    };
+    (inline.to_string(), false)
+}
 
 fn default_shell_path() -> String {
     #[cfg(target_os = "windows")]
@@ -206,6 +277,16 @@ pub(crate) fn pty_create(
     for (k, v) in active_env(&app) {
         cmd.env(k, v);
     }
+    // 要注入什么得在启动前定下来：有完整集成的会话才发 nonce，而 nonce 只能经环境变量给
+    let (inject, integrated) = injection_for(&app, &effective_shell_type);
+    let history_nonce = if integrated {
+        crate::history::new_nonce()
+    } else {
+        String::new()
+    };
+    if integrated {
+        cmd.env("BRACE_HISTORY_NONCE", &history_nonce);
+    }
     let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
     drop(pair.slave);
     let pid = child.process_id();
@@ -214,14 +295,7 @@ pub(crate) fn pty_create(
     let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
     let mut writer = pair.master.take_writer().map_err(|e| e.to_string())?;
 
-    // 按 shell 类型注入对应的 cwd 上报 prompt
-    let inject = match effective_shell_type.as_str() {
-        "powershell" => POWERSHELL_INJECT,
-        "cmd" => CMD_INJECT,
-        "bash" => BASH_INJECT,
-        "zsh" => ZSH_INJECT,
-        _ => "",
-    };
+    // 按 shell 类型注入 cwd 上报（以及 bash / PowerShell 的命令历史）
     if !inject.is_empty() {
         let _ = writer.write_all(inject.as_bytes());
         let _ = writer.flush();
@@ -355,6 +429,8 @@ pub(crate) fn pty_create(
             master: pair.master,
             pid,
             child,
+            history_nonce,
+            shell_type: effective_shell_type,
         },
     );
     Ok(())
@@ -445,6 +521,23 @@ pub(crate) fn kill_all_sessions(manager: &PtyManager) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // ----- 集成脚本的加载命令 -----
+
+    // 用户名里带单引号（O'Brien）时，路径会出现在单引号字符串里，转义错了 shell 直接报语法错误
+    #[test]
+    fn loader_line_quotes_paths() {
+        let p = Path::new(r"C:\Users\O'Brien\AppData\Roaming\com.brace.dev\shell\brace.bash");
+        assert_eq!(
+            loader_line("bash", p),
+            " source 'C:/Users/O'\\''Brien/AppData/Roaming/com.brace.dev/shell/brace.bash'\r"
+        );
+        let p = Path::new(r"C:\Users\O'Brien\shell\brace.ps1");
+        assert_eq!(
+            loader_line("powershell", p),
+            "iex ([IO.File]::ReadAllText('C:\\Users\\O''Brien\\shell\\brace.ps1')); clear\r"
+        );
+    }
+
     // ----- 流式 UTF-8 解码 -----
 
     #[test]

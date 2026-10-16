@@ -25,6 +25,8 @@ interface Props {
   args: string[];
   onRegisterSearch: (id: string, addon: SearchAddon) => void;
   onUnregisterSearch: (id: string) => void;
+  // 命令历史「插入到终端」用。返回 false = 没法安全插入（见下面 insertCommand）
+  onRegisterInsert: (id: string, insert: ((text: string) => boolean) | null) => void;
   debugInput: boolean;
   onExit: (sessionId: string, code: number | null) => void;
   onRestarted: (sessionId: string) => void;
@@ -46,6 +48,7 @@ export default function TerminalView({
   args,
   onRegisterSearch,
   onUnregisterSearch,
+  onRegisterInsert,
   debugInput,
   onExit,
   onRestarted,
@@ -167,6 +170,17 @@ export default function TerminalView({
 
     onRegisterSearch(sessionId, search);
 
+    // 把一条命令放到提示符上，不执行。走 xterm 的 paste：shell 开了 bracketed paste 时，
+    // 多行命令会作为一整段进入编辑缓冲区，回车之前什么都不会跑。
+    // 没开的话（cmd、不支持的 PSReadLine）换行就等于回车，第一行会被直接执行——
+    // 那就不插，让调用方改走剪贴板。单行命令没有这个问题
+    onRegisterInsert(sessionId, (text) => {
+      if (/[\r\n]/.test(text) && !term.modes.bracketedPasteMode) return false;
+      term.paste(text);
+      term.focus();
+      return true;
+    });
+
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
       if (e.ctrlKey && e.shiftKey && e.code === "KeyC") {
@@ -187,6 +201,18 @@ export default function TerminalView({
       if (e.ctrlKey && !e.altKey && e.code === "KeyV") {
         return false;
       }
+      return true;
+    });
+
+    // 命令历史：shell 集成在每条命令执行完后上报（见 src-tauri/shell/）。
+    // 这里不解析，原样交给后端——nonce 校验和密钥过滤都在那边。
+    // cwd 用的是上一次 OSC 9;9 报的目录：脚本先报命令后报 cwd，所以这正是命令执行时的目录
+    term.parser.registerOscHandler(6973, (data) => {
+      invoke("history_report", {
+        sessionId,
+        payload: data,
+        cwd: lastCwdRef.current,
+      }).catch(console.error);
       return true;
     });
 
@@ -395,6 +421,7 @@ export default function TerminalView({
       unlistenPromise.then((f) => f());
       unlistenExitPromise.then((f) => f());
       onUnregisterSearch(sessionId);
+      onRegisterInsert(sessionId, null);
       invoke("pty_close", { id: sessionId }).catch(() => {});
       term.dispose();
     };
