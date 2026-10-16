@@ -11,8 +11,8 @@ Effort figures are working days of actual work, not calendar time.
 | --- | --- | --- | --- |
 | 0.1.8 ✅ | Stabilization: silent failures, usability defects, engineering baseline | 4-6d | No — 0.1.7 actively misleads users |
 | 0.2.0 ✅ | SSH remote sessions (scratch-your-own-itch) | 2-3d | Yes, but the author needs it daily |
-| 0.2.1 | Fixes: Ctrl+V paste into Git Bash, Git Bash detection, Alt+click with CJK | 0.5d | No — paste is broken every day |
-| 0.3.0 | Shell integration + command history | 2-3d | Yes |
+| 0.2.1 ✅ | Fixes: Ctrl+V paste into Git Bash, Git Bash detection, Alt+click with CJK | 0.5d | No — paste is broken every day |
+| 0.3.0 ✅ | Shell integration + command history | 2-3d | Yes |
 | 0.4.0 | AI command suggestions + third-party API balance | 5-6d | Yes — this is a selling point, not a blocker |
 | 0.4.x | Custom shells/WSL + per-tab profile binding | ~3d | Ships alongside, no release of its own |
 
@@ -155,9 +155,20 @@ session grouping trees.
 
 ---
 
-## v0.3.0 · Shell integration + command history
+## v0.3.0 · Shell integration + command history — shipped
 
 Split out of the original 0.3.0 — see the decision log for why it now goes first.
+
+Built as planned, with three things learned on the way that are easy to undo by accident:
+
+- **The scripts are files** (`src-tauri/shell/`), compiled in and loaded with one injected line.
+  `*.bash` is pinned to LF in `.gitattributes`: a CRLF checkout — the default on Windows
+  runners — breaks every line of a bash script, and only on someone else's machine
+- **The prompt must not get slower.** `history 1` costs a fork (~60ms under msys); the
+  pure-bash `/d/x → D:/x` conversion removed the existing `pwd -W` fork to pay for it
+- **Reports carry a per-session nonce**, passed by environment variable and removed
+  from the environment once read. Without it anything printed to the screen could
+  plant a history entry
 
 ### Shell integration
 
